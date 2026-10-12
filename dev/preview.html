@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- Preview of the interface in a regular browser, with fake data.
+     Serve the project root (e.g. `python -m http.server 5173`) and open /dev/preview.html -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Wax (preview)</title>
+  <script>document.write(`<link rel="stylesheet" href="../ui/style.css?${Date.now()}">`)</script>
+</head>
+<body>
+<script>
+(() => {
+  const artists = [
+    ['Arctic Monkeys', ['AM', 'Humbug', 'Favourite Worst Nightmare'], 2007],
+    ['Gorillaz', ['Demon Days', 'Plastic Beach'], 2005],
+    ['Daft Punk', ['Discovery', 'Random Access Memories'], 2001],
+    ['Radiohead', ['OK Computer', 'In Rainbows', 'Kid A'], 1997],
+    ['The Strokes', ['Is This It', 'Room on Fire'], 2001],
+    ['Tame Impala', ['Currents', 'Lonerism'], 2015],
+    ['Massive Attack', ['Mezzanine'], 1998],
+  ];
+  const words = ['Light', 'Night', 'City', 'Echoes', 'Time', 'Rhythm', 'Glass', 'Fire', 'Tide', 'Shadow', 'Vertigo', 'Blue'];
+  const tracks = [];
+  let n = 0;
+  for (let rep = 0; rep < 36; rep++) for (const [ar0, albums, y0] of artists) albums.forEach((al0, ai) => {
+    const ar = rep ? `${ar0} ${rep}` : ar0, al = rep ? `${al0} (vol. ${rep})` : al0;
+    const count = 8 + ((ar.length + ai) % 5);
+    for (let i = 1; i <= count; i++) {
+      n++;
+      tracks.push({ path: `C:\\Music\\${ar}\\${al}\\${String(i).padStart(2, '0')}.mp3`, title: `${words[(n * 7) % words.length]} ${words[(n * 3 + i) % words.length].toLowerCase()}`,
+        artist: ar, album: al, albumArtist: ar, trackNo: i, discNo: 1, year: y0 + ai * 3, duration: 150 + (n * 37) % 200, added: 1700000000 + n * 86400, size: 1000, genres: [['Rock', 'Indie rock'], ['Alternative', 'Hip hop'], ['Electronic'], ['Alternative', 'Rock'], ['Indie rock'], ['Psychedelic', 'Indie'], ['Trip hop']][artists.findIndex(x => x[0] === ar0)], artists: [] });
+    }
+  });
+  // A CUE sheet album and two duplicates
+  ['Teardrop', 'Angel', 'Inertia Creeps'].forEach((title, k) => tracks.push({ path: `C:\\Music\\Massive Attack\\Mezzanine (CUE)\\Mezzanine.cue#0${k + 1}`, title, artist: 'Massive Attack', album: 'Mezzanine (CUE)', albumArtist: 'Massive Attack', trackNo: k + 1, discNo: 0, year: 1998, duration: 300 + k * 20, added: 1700000000, size: 5000, genres: ['Trip hop'], artists: [], cue: { file: 'C:\\Music\\Massive Attack\\Mezzanine (CUE)\\Mezzanine.flac', startMs: k * 300000, endMs: (k + 1) * 300000 } }));
+  for (const src of [tracks[0], tracks[1]]) tracks.push({ ...src, path: src.path.replace('.mp3', '.flac'), size: 30000000 });
+  const hue = s => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  const cover = p => {
+    const h = hue(p.split('\\').slice(0, -1).join('\\'));
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='hsl(${h},60%,55%)'/><stop offset='1' stop-color='hsl(${(h + 60) % 360},55%,25%)'/></linearGradient></defs><rect width='100' height='100' fill='url(#g)'/><circle cx='50' cy='50' r='22' fill='none' stroke='rgba(255,255,255,.35)' stroke-width='3'/></svg>`;
+    return 'data:image/svg+xml,' + encodeURIComponent(svg);
+  };
+  let state = JSON.stringify({ lastfmKey: 'preview', lastfmUser: 'preview', ratings: { [tracks[0].path]: 4, [tracks[2].path]: 5 }, plFolders: [{ id: 'f1', name: 'Moods', open: true }], folders:['C:\\Music'], playlists: [{ id: 'a', name: 'Road trip', tracks: tracks.slice(3, 15).map(t => t.path) }, { id: 'b', name: 'Lazy Sunday', folder: 'f1', tracks: tracks.slice(40, 52).map(t => t.path) }], recent: [] });
+  const handlers = {
+    load_state: () => state, save_state: ({ json }) => { state = json; },
+    load_library: () => tracks, scan_folders: () => tracks, pick_folders: () => [],
+    get_cover: ({ path }) => path.includes('Mezzanine') ? null : { path: cover(path), color: `hsl(${hue(path.split('\\').slice(0, -1).join('\\'))},55%,36%)` },
+    reveal: () => {}, save_lyrics: () => {},
+    audio_available: () => false, load_loudness: () => ({}), app_info: () => ({ version: 'preview', dataDir: 'C:/Wax/data' }),
+    get_artist_image: ({ name }) => /Radiohead|Gorillaz/.test(name) ? { path: cover('C:/a/' + name + '/x'), color: '#444' } : null,
+    load_history: () => Array.from({ length: 400 }, (_, i) => ({ p: tracks[(i * 37) % 160].path, t: Math.floor(Date.now() / 1000) - i * 5000, s: 200 })),
+    lastfm_get: ({ method, params }) => {
+      const ar = params.artist || '';
+      if (method === 'artist.getTopTracks') return { toptracks: { track: tracks.filter(t => t.artist === ar).slice(3, 15).reverse().map(t => ({ name: t.title + ' - 2011 Remaster', playcount: '1000' })) } };
+      if (method === 'artist.getSimilar') return { similarartists: { artist: [...artists.map(a => a[0]).filter(n => n !== ar).map(n => ({ name: n, match: '0.8', url: 'https://www.last.fm/music/' + n })), { name: 'Portishead', match: '0.7', url: 'https://www.last.fm/music/Portishead' }, { name: 'Air', match: '0.6', url: 'https://www.last.fm/music/Air' }] } };
+      if (method === 'artist.getInfo') return { artist: { url: 'https://www.last.fm/music/' + ar, stats: { listeners: '2345678', playcount: '98765432' }, tags: { tag: [{ name: 'rock' }, { name: 'alternative' }] }, bio: { content: `${ar} is a band formed in the nineties.\n\nThey released several albums. <a href="https://www.last.fm/music/x">Read more on Last.fm</a>. User-contributed text is available under the Creative Commons By-SA License.` } } };
+      if (method === 'album.getInfo') return { album: { wiki: { content: `${params.album} is an album by ${ar}. It was recorded over two years and received wide acclaim; critics praised its production, songwriting and cohesion, and it has since been ranked among the best albums of its decade.\n\nA second paragraph.` } } };
+      if (method === 'artist.getTopTags') return { toptags: { tag: [{ name: 'trip-hop', count: 100 }, { name: 'seen live', count: 80 }, { name: 'electronic', count: 60 }] } };
+      return { error: 6 };
+    },
+    covers_status: ({ albums }) => albums.map((a, k) => ({ embedded: k % 3 === 0, any: k % 7 !== 0 })),
+    lyrics_status: ({ paths }) => paths.map((_, k) => k % 4 !== 0),
+    trash_files: () => [], copy_files: ({ items }) => ({ copied: items.length, skipped: 0, errors: [] }), pick_dir: () => 'E:\\USB',
+    embed_covers: () => ({ tracks: [], errors: [] }), write_replaygain: () => ({ tracks: [], errors: [] }),
+    discord_update: () => {}, lastfm_love: () => {}, append_history_bulk: () => {},
+    image_candidates: ({ kind, artist }) => Array.from({ length: 8 }, (_, i) => ({ title: `${artist} ${i + 1}`, sub: kind === 'album' ? 'album' : `${i * 1000} fans`, thumb: cover(`C:\\x\\${artist}${i}\\y`), url: cover(`C:\\x\\${artist}${i}\\y`) })),
+    save_custom_image: ({ source }) => source, place_image: () => {}, pick_image: () => null,
+    artist_releases: async ({ name }) => ({ name, releases: [{ title: `${name} — New Album`, date: new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10), kind: 'album', cover: cover(`C:\\r\\${name}\\x`), link: 'https://www.deezer.com' }, { title: 'Upcoming single', date: new Date(Date.now() + 9 * 864e5).toISOString().slice(0, 10), kind: 'single', cover: cover(`C:\\r\\${name}2\\x`), link: 'https://www.deezer.com' }] }),
+    song_credits: ({ title }) => ({ title, artist: 'Radiohead', url: 'https://musicbrainz.org', credits: [{ role: 'Writer', names: ['Thom Yorke', 'Jonny Greenwood'] }, { role: 'Producer', names: ['Nigel Godrich'] }, { role: 'Guitar', names: ["Ed O'Brien"] }] }),
+    search_lyrics: ({ query, paths }) => paths.slice(0, 4).map(p => ({ path: p, line: `…a line with ${query} in it…` })),
+    autoeq_index: () => [{ name: 'Sennheiser HD 600', source: 'oratory1990', path: 'x' }, { name: 'Sennheiser HD 650', source: 'oratory1990', path: 'y' }, { name: 'Sony WH-1000XM4', source: 'oratory1990', path: 'z' }],
+    autoeq_profile: () => ({ preamp: -6.3, filters: [{ kind: 'LSC', fc: 105, gain: 6.5, q: 0.7 }, { kind: 'PK', fc: 125, gain: -2.7, q: 0.55 }] }),
+    pick_csv_files: () => [{ name: 'My Spotify mix', text: 'Track URI,Track Name,Artist Name(s),Album Name,Track Duration (ms)\n' + tracks.slice(0, 6).map(t => `x,"${t.title}","${t.artist}","${t.album}",${t.duration * 1000}`).join('\n') + '\nx,Missing Song,Nobody,Nothing,200000' }],
+    audio_devices: () => ['Speakers (Realtek(R) Audio)', 'Headphones (USB DAC)'], audio_output: ({ device, exclusive }) => ({ device: device || 'Speakers (Realtek(R) Audio)', rate: 48000, exclusive, format: exclusive ? '32-bit' : '' }), audio_crossfeed: () => {},
+    organize_files: ({ moves }) => ({ moved: moves.map(m => [m.from, m.to]), errors: [] }),
+    set_shortcuts: () => [], watch_folders: () => {}, media_update: () => {}, tray_tooltip: () => {}, taskbar_playing: () => {}, osd_show: () => {}, append_history: () => {},
+    get_lyrics: async () => { await new Promise(r => setTimeout(r, 400)); return { found: true, source: 'LRCLIB', synced: Array.from({ length: 40 }, (_, i) => `[${String(Math.floor(i * 4 / 60)).padStart(2, '0')}:${String(i * 4 % 60).padStart(2, '0')}.00]${words[i % words.length]} ${words[(i * 5) % words.length].toLowerCase()} in the ${words[(i * 3) % words.length].toLowerCase()}`).join('\n') }; },
+  };
+  const noop = () => Promise.resolve();
+  window.__TAURI__ = {
+    core: { invoke: async (c, a) => handlers[c]?.(a || {}), convertFileSrc: p => p.startsWith('data:') ? p : 'about:blank' },
+    window: { getCurrentWindow: () => ({ minimize: noop, toggleMaximize: noop, close: noop, isMaximized: async () => false, onResized: noop }) },
+    event: { listen: async () => () => {}, emit: async () => {} },
+  };
+})();
+</script>
+<script>
+  fetch('../ui/index.html', { cache: 'no-store' }).then(r => r.text()).then(html => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    document.body.insertAdjacentHTML('beforeend', doc.body.innerHTML.replace(/<script[\s\S]*?<\/script>/g, ''));
+    const e = document.createElement('script'); e.src = '../ui/engine.js?' + Date.now();
+    e.onload = () => {
+      const s = document.createElement('script'); s.src = '../ui/app.js?' + Date.now();
+      s.onload = () => {
+        const x = document.createElement('script'); x.src = '../ui/extras.js?' + Date.now();
+        x.onload = () => { const m = document.createElement('script'); m.src = '../ui/more.js?' + Date.now(); document.body.appendChild(m); };
+        document.body.appendChild(x);
+      };
+      document.body.appendChild(s);
+    };
+    document.body.appendChild(e);
+  });
+</script>
+</body>
+</html>

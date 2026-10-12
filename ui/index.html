@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Wax</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sb-top" data-tauri-drag-region>
+        <button class="ib" id="app-menu" title="Menu" data-ic="dots"></button>
+      </div>
+      <nav class="sb-scroll">
+        <div class="sb-group">
+          <a class="sb-item" data-go="browse"><span class="sbi" data-ic="browse"></span>Browse</a>
+          <a class="sb-item" data-go="radio"><span class="sbi" data-ic="radio"></span>Radio</a>
+          <a class="sb-item" data-go="local"><span class="sbi" data-ic="computer"></span>Local Files</a>
+          <a class="sb-item" data-go="stats"><span class="sbi" data-ic="chart"></span>Your Stats</a>
+        </div>
+        <h4 class="sb-h">Your Music</h4>
+        <a class="sb-item" data-go="recent"><span class="sbi" data-ic="clock"></span>Recently Played</a>
+        <a class="sb-item" data-go="favorites"><span class="sbi" data-ic="heart"></span>Your Favorites</a>
+        <a class="sb-item" data-go="songs"><span class="sbi" data-ic="note"></span>Songs</a>
+        <a class="sb-item" data-go="albums"><span class="sbi" data-ic="disc"></span>Albums</a>
+        <a class="sb-item" data-go="artists"><span class="sbi" data-ic="mic2"></span>Artists</a>
+        <a class="sb-item" data-go="folders"><span class="sbi" data-ic="folder"></span>Folders</a>
+        <h4 class="sb-h" id="sb-pl-h">Playlists</h4>
+        <div id="sb-playlists"></div>
+      </nav>
+      <div id="sb-cover">
+        <div class="cv" id="sb-cover-img" data-big="1"><span class="ph" data-ic="note" data-s="64"></span></div>
+        <button class="shrink" id="cover-shrink" title="Shrink cover art" data-ic="down" data-s="14"></button>
+      </div>
+      <button id="new-playlist"><span class="plus-circle" data-ic="plus" data-s="14"></span>New Playlist</button>
+    </aside>
+
+    <main id="main">
+      <header id="topbar" data-tauri-drag-region>
+        <div class="nav-arrows">
+          <button class="ib" id="nav-back" title="Back" data-ic="left" data-s="18"></button>
+          <button class="ib" id="nav-fwd" title="Forward" data-ic="right" data-s="18"></button>
+        </div>
+        <label class="search">
+          <span data-ic="search" data-s="14"></span>
+          <input id="search" type="text" placeholder="Search" spellcheck="false" autocomplete="off">
+        </label>
+        <div class="spacer" data-tauri-drag-region></div>
+        <div class="user" id="user-menu"><span class="avatar" data-ic="user" data-s="14"></span><span>Local</span><span class="chev" data-ic="down" data-s="12"></span></div>
+        <div class="winctl">
+          <button id="w-min" title="Minimize" data-ic="min" data-s="12"></button>
+          <button id="w-max" title="Maximize" data-ic="max" data-s="12"></button>
+          <button id="w-close" title="Close" data-ic="x" data-s="12"></button>
+        </div>
+      </header>
+      <div id="content">
+        <section id="view"></section>
+        <aside id="lyrics-panel">
+          <div class="lyp-resize" id="ly-resize" title="Drag to change the width"></div>
+          <div class="lyp-head"><span>Lyrics</span><button class="ib" id="ly-close" title="Close" data-ic="x" data-s="14"></button></div>
+          <div class="lyp-track" id="ly-track"></div>
+          <div id="ly-body"></div>
+          <div class="lyp-foot" id="ly-foot"></div>
+        </aside>
+      </div>
+      <div id="toast"></div>
+      <div id="task"></div>
+    </main>
+  </div>
+
+  <footer id="player">
+    <div class="np">
+      <div class="np-cover cv" id="np-cover">
+        <span class="ph" data-ic="note" data-s="24"></span>
+        <button class="expand" id="cover-expand" title="Enlarge cover art" data-ic="up" data-s="12"></button>
+      </div>
+      <div class="np-text">
+        <a class="np-title lnk" id="np-title"></a>
+        <a class="np-artist lnk" id="np-artist"></a>
+      </div>
+      <button class="ib np-fav" id="b-fav" title="Add to Your Favorites" data-ic="heart"></button>
+    </div>
+
+    <div class="ctl">
+      <div class="ctl-btns">
+        <button class="ib" id="b-shuffle" title="Shuffle" data-ic="shuffle"></button>
+        <button class="ib" id="b-prev" title="Previous" data-ic="prev"></button>
+        <button id="b-play" title="Play" data-ic="play"></button>
+        <button class="ib" id="b-next" title="Next" data-ic="next"></button>
+        <button class="ib" id="b-repeat" title="Repeat" data-ic="repeat"></button>
+      </div>
+      <div class="prog">
+        <span id="t-cur">0:00</span>
+        <div class="slider" id="seek"><div class="rail"><div class="fill"></div><div class="knob"></div></div></div>
+        <span id="t-dur">0:00</span>
+      </div>
+    </div>
+
+    <div class="right">
+      <button class="ib" id="b-lyrics" title="Lyrics" data-ic="mic"></button>
+      <button class="ib" id="b-eq" title="Equalizer" data-ic="eq"></button>
+      <button class="ib" id="b-queue" title="Play queue" data-ic="queue"></button>
+      <button class="ib" id="b-mute" title="Mute" data-ic="vol"></button>
+      <div class="slider vol" id="vol"><div class="rail"><div class="fill"></div><div class="knob"></div></div></div>
+      <button class="ib" id="b-sleep" title="Sleep timer" data-ic="moon"></button>
+      <button class="ib" id="b-full" title="Now playing (full screen)" data-ic="full"></button>
+      <button class="ib" id="b-mini" title="Mini player" data-ic="mini"></button>
+    </div>
+  </footer>
+
+  <div id="menu" class="mmenu"></div>
+  <div id="modal-bg"></div>
+  <div id="drag-ghost"></div>
+
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+  <script src="extras.js"></script>
+  <script src="more.js"></script>
+</body>
+</html>

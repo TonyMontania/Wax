@@ -1,0 +1,80 @@
+# Builds Wax for Windows, macOS and Linux. It only builds: the files are kept as artifacts of the
+# run, and releases are created and uploaded by hand (gh release) from the maintainer's account.
+name: Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: macos-latest
+            target: universal-apple-darwin
+            bundles: app,dmg
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libasound2-dev libdbus-1-dev patchelf rpm file \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build
+        run: npx --yes @tauri-apps/cli@2 build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Collect the files
+        shell: bash
+        run: |
+          VER=$(node -p "require('./tauri.conf.json').version")
+          T=target/${{ matrix.target }}/release
+          mkdir -p out
+          case "${{ runner.os }}" in
+            Windows)
+              cp $T/bundle/nsis/*-setup.exe out/
+              mkdir -p portable/Wax
+              cp $T/wax.exe portable/Wax/Wax.exe
+              cp packaging/portable/README.txt packaging/portable/portable portable/Wax/
+              (cd portable && 7z a -tzip ../out/Wax-portable-$VER-win64.zip Wax)
+              ;;
+            macOS)
+              cp $T/bundle/dmg/*.dmg out/
+              tar -czf out/Wax_${VER}_universal.app.tar.gz -C $T/bundle/macos Wax.app
+              ;;
+            Linux)
+              cp $T/bundle/deb/*.deb $T/bundle/rpm/*.rpm $T/bundle/appimage/*.AppImage out/
+              ;;
+          esac
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wax-${{ runner.os }}
+          path: out/*
+          if-no-files-found: error

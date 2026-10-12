@@ -1,0 +1,50 @@
+[package]
+name = "wax"
+version = "1.0.0"
+description = "Local music player with the classic Spotify interface"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "custom-protocol", "tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+lofty = "0.22"
+walkdir = "2"
+rayon = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif"] }
+ureq = { version = "3", features = ["json"] }
+# Audio engine (gapless, crossfade, equalizer, normalization)
+rodio = { version = "=0.19.0", default-features = false }
+symphonia = { version = "0.5.5", features = ["aac", "alac", "flac", "isomp4", "mkv", "mp3", "ogg", "vorbis", "wav", "pcm", "aiff", "adpcm", "opt-simd"] }
+ebur128 = "0.1"
+# High-quality sample-rate conversion (file rate → audio device rate)
+rubato = "0.16"
+# MP3 encoder (converting when copying to a USB stick / phone)
+mp3lame-encoder = "0.2"
+# Windows media controls (media keys + media panel)
+souvlaki = "0.8"
+# New-music detection
+notify = "8"
+md-5 = "0.10"
+# Duplicates go to the Recycle Bin
+trash = "5"
+# In-app updates (portable zip, checksums)
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(windows)'.dependencies]
+# WASAPI exclusive mode (the audio goes to the device without the Windows mixer)
+wasapi = "0.25"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_UI_Controls"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

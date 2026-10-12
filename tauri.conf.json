@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Wax",
+  "version": "1.0.0",
+  "identifier": "app.wax.player",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wax",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true,
+        "decorations": false,
+        "dragDropEnabled": false,
+        "backgroundColor": "#181818",
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "deb",
+      "rpm",
+      "appimage",
+      "app",
+      "dmg"
+    ],
+    "publisher": "Tony",
+    "copyright": "© 2026 Tony · GPL-3.0",
+    "category": "Music",
+    "shortDescription": "Local music player with the classic Spotify interface",
+    "longDescription": "Wax plays the music on your computer with the look of the classic Spotify desktop app: gapless playback, crossfade, equalizer and AutoEQ, synced lyrics, Last.fm, and tools to organize and tag your library.",
+    "homepage": "https://github.com/TonyMontania/Wax",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "both",
+        "displayLanguageSelector": false
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "section": "sound"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

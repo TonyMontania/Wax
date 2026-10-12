@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wax</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #282828; color: #fff; font: 13px/1.35 "Circular", "Montserrat", "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; cursor: pointer; }
+  body { display: flex; align-items: center; border: 1px solid #000; border-left: 3px solid var(--accent, #1db954); }
+  #cover { width: 82px; height: 82px; flex: none; background: #333 center / cover no-repeat; }
+  .meta { padding: 0 14px; min-width: 0; }
+  .lab { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--accent, #1db954); margin-bottom: 3px; }
+  #title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #artist, #album { color: #b3b3b3; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.in { animation: in .25s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(10px); } }
+</style>
+</head>
+<body>
+  <div id="cover"></div>
+  <div class="meta"><div class="lab">Now playing</div><div id="title"></div><div id="artist"></div><div id="album"></div></div>
+<script>
+  const T = window.__TAURI__;
+  T.event.listen('osd', e => {
+    const d = e.payload;
+    if (d.accent) document.documentElement.style.setProperty("--accent", d.accent);
+    document.getElementById('title').textContent = d.title;
+    document.getElementById('artist').textContent = d.artist;
+    document.getElementById('album').textContent = d.album || '';
+    document.getElementById('cover').style.backgroundImage = d.cover ? `url("${d.cover}")` : '';
+    document.body.classList.remove('in'); void document.body.offsetWidth; document.body.classList.add('in');
+  });
+  document.body.onclick = () => T.core.invoke('show_main_window');
+  addEventListener('contextmenu', e => e.preventDefault());
+</script>
+</body>
+</html>

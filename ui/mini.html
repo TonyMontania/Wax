@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wax</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #181818; color: #fff; font: 13px/1.35 "Circular", "Montserrat", "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; cursor: default; }
+  body { display: flex; border: 1px solid #000; }
+  #cover { width: 102px; height: 102px; flex: none; background: #282828 center / cover no-repeat; position: relative; }
+  #cover .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #535353; }
+  #cover.img .ph { display: none; }
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 10px 10px 8px 14px; position: relative; }
+  .top { display: flex; align-items: flex-start; gap: 6px; }
+  .meta { flex: 1; min-width: 0; }
+  #title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #artist { color: #b3b3b3; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctl { display: flex; align-items: center; gap: 14px; }
+  button { background: none; border: 0; color: #b3b3b3; display: flex; align-items: center; justify-content: center; cursor: default; }
+  button:hover { color: #fff; }
+  button.on { color: var(--accent, #1db954); }
+  #play { width: 30px; height: 30px; border: 1px solid #b3b3b3; border-radius: 50%; color: #fff; }
+  #play:hover { border-color: #fff; transform: scale(1.06); }
+  .win button { width: 22px; height: 22px; }
+  #prog { height: 12px; display: flex; align-items: center; cursor: pointer; }
+  #prog .rail { height: 3px; width: 100%; background: #404040; border-radius: 2px; position: relative; }
+  #prog .fill { position: absolute; left: 0; top: 0; bottom: 0; background: #a0a0a0; border-radius: 2px; }
+  #prog:hover .fill { background: var(--accent, #1db954); }
+  svg { display: block; }
+</style>
+</head>
+<body data-tauri-drag-region>
+  <div id="cover" data-tauri-drag-region><span class="ph">♪</span></div>
+  <main data-tauri-drag-region>
+    <div class="top" data-tauri-drag-region>
+      <div class="meta" data-tauri-drag-region><div id="title" data-tauri-drag-region>Wax</div><div id="artist" data-tauri-drag-region></div></div>
+      <div class="win" style="display:flex">
+        <button id="restore" title="Open Wax"><svg width="13" height="13" viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M13.5 10v3.5H10M2.5 2.5l4.5 4.5M13.5 13.5 9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+      </div>
+    </div>
+    <div class="ctl">
+      <button id="fav" title="Favorite"><svg width="15" height="15" viewBox="0 0 16 16"><path id="favp" d="M8 13.8S2 10.2 2 6a3 3 0 0 1 6-.9A3 3 0 0 1 14 6c0 4.2-6 7.8-6 7.8z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
+      <button id="prev" title="Previous"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M2.7 2.5h1.9v11H2.7zM13.2 2.6v10.8L5.6 8z" fill="currentColor"/></svg></button>
+      <button id="play" title="Play"><svg id="pi" width="14" height="14" viewBox="0 0 16 16"><path d="M4.5 2.6v10.8L13 8z" fill="currentColor"/></svg></button>
+      <button id="next" title="Next"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M11.4 2.5h1.9v11h-1.9zM2.8 2.6v10.8L10.4 8z" fill="currentColor"/></svg></button>
+      <button id="shuffle" title="Shuffle"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M1.5 4.5h2.2c3.3 0 5 7 8.3 7h2.5M1.5 11.5h2.2c3.3 0 5-7 8.3-7h2.5M12.5 2.5l2 2-2 2M12.5 9.5l2 2-2 2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div id="prog"><div class="rail"><div class="fill" id="fill"></div></div></div>
+  </main>
+<script>
+  const T = window.__TAURI__;
+  const $ = s => document.querySelector(s);
+  const cmd = c => T.event.emit('mini-cmd', c);
+  const PLAY = 'M4.5 2.6v10.8L13 8z', PAUSE = 'M4 2.5h2.7v11H4zM9.3 2.5H12v11H9.3z';
+  let st = null, base = 0, baseAt = 0;
+  T.event.listen('np-state', e => {
+    st = e.payload;
+    if (st.accent) document.documentElement.style.setProperty('--accent', st.accent);
+    $('#title').textContent = st.title; $('#artist').textContent = st.artist;
+    document.title = `${st.title} · ${st.artist}`;
+    const c = $('#cover');
+    if (st.cover) { c.style.backgroundImage = `url("${st.cover}")`; c.classList.add('img'); } else { c.style.backgroundImage = ''; c.classList.remove('img'); }
+    $('#pi').innerHTML = `<path d="${st.playing ? PAUSE : PLAY}" fill="currentColor"/>`;
+    $('#play').title = st.playing ? 'Pause' : 'Play';
+    $('#fav').classList.toggle('on', st.fav);
+    $('#favp').setAttribute('fill', st.fav ? 'currentColor' : 'none');
+    $('#shuffle').classList.toggle('on', st.shuffle);
+    base = st.pos; baseAt = performance.now();
+  });
+  // Smooth progress between updates
+  (function tick() {
+    if (st && st.dur) {
+      const pos = st.playing ? base + (performance.now() - baseAt) / 1000 : base;
+      $('#fill').style.width = Math.min(100, pos / st.dur * 100) + '%';
+    }
+    requestAnimationFrame(tick);
+  })();
+  $('#play').onclick = () => cmd('toggle');
+  $('#prev').onclick = () => cmd('prev');
+  $('#next').onclick = () => cmd('next');
+  $('#fav').onclick = () => cmd('like');
+  $('#shuffle').onclick = () => cmd('shuffle');
+  $('#restore').onclick = () => cmd('restore');
+  $('#prog').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); cmd({ seek: (e.clientX - r.left) / r.width }); };
+  addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); cmd('toggle'); } });
+  addEventListener('contextmenu', e => e.preventDefault());
+  cmd('ready');
+</script>
+</body>
+</html>

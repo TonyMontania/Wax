@@ -1,0 +1,8 @@
+/target
+/dist
+/gen
+data/
+# Never part of the repo
+.claude/
+# Converting leftovers
+*.part.mp3
