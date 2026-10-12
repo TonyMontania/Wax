@@ -289,6 +289,16 @@ pub fn cleanup() {
 mod tests {
     use super::*;
     #[test]
+    fn checks_github() {
+        if std::env::var("WAX_NET").is_err() {
+            return;
+        }
+        let u = tauri::async_runtime::block_on(check_update()).unwrap();
+        println!("update check: current {} latest {} newer {} asset {:?} install {}", u.current, u.latest, u.newer, u.asset, u.install);
+        assert!(!u.newer || u.asset.is_some() || u.latest != u.current);
+    }
+
+    #[test]
     fn versions() {
         assert!(version("v1.2.10") > version("1.2.9"));
         assert!(version("2.0.0") > version("v1.99.99"));
