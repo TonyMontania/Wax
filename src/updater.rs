@@ -4,7 +4,7 @@
 //!   macOS              → the new Wax.app replaces the old one where it is
 //!   AppImage (Linux)   → the new .AppImage replaces the old file
 //!   .deb / .rpm        → the package is downloaded and opened with the system installer
-//! Downloads are checked against the release's SHA256SUMS.txt when it has one.
+//! Downloads are checked against the SHA-256 GitHub publishes for each release file.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -132,22 +132,13 @@ fn download(app: &AppHandle, url: &str, total: u64, to: &Path) -> Result<String,
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Checks the download against SHA256SUMS.txt ("<hash>  <file name>" lines), if the release has it.
-fn verify(rel: &Value, name: &str, hash: &str) -> Result<(), String> {
-    let Some(sums) = rel["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case("SHA256SUMS.txt")))) else {
-        return Ok(());
-    };
-    let text = http()
-        .get(sums["browser_download_url"].as_str().unwrap_or(""))
-        .call()
-        .map_err(|e| e.to_string())?
-        .body_mut()
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
-    match text.lines().find_map(|l| l.split_once(char::is_whitespace).filter(|(_, n)| n.trim().trim_start_matches('*') == name).map(|(h, _)| h.trim().to_lowercase())) {
-        Some(h) if h == hash => Ok(()),
+/// Checks the download against the SHA-256 that GitHub publishes for every release file
+/// (the asset's "digest" field).
+fn verify(asset: &Value, hash: &str) -> Result<(), String> {
+    match asset["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")) {
+        Some(d) if d.eq_ignore_ascii_case(hash) => Ok(()),
         Some(_) => Err("The download is damaged (checksum doesn't match). Try again.".into()),
-        None => Ok(()),
+        None => Ok(()), // older releases without a digest
     }
 }
 
@@ -187,7 +178,7 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
         fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         let file = tmp.join(&name);
         let hash = download(&app, &url, total, &file)?;
-        verify(&rel, &name, &hash)?;
+        verify(&asset, &hash)?;
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let dir = app_dir();
         match install_kind() {
@@ -292,6 +283,14 @@ mod tests {
         let u = tauri::async_runtime::block_on(check_update()).unwrap();
         println!("update check: current {} latest {} newer {} asset {:?} install {}", u.current, u.latest, u.newer, u.asset, u.install);
         assert!(!u.newer || u.asset.is_some() || u.latest != u.current);
+    }
+
+    #[test]
+    fn digests() {
+        let a = serde_json::json!({ "digest": "sha256:ABC123" });
+        assert!(verify(&a, "abc123").is_ok());
+        assert!(verify(&a, "ffff").is_err());
+        assert!(verify(&serde_json::json!({}), "ffff").is_ok());
     }
 
     #[test]
