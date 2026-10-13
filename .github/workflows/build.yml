@@ -73,6 +73,34 @@ jobs:
           esac
           ls -la out
 
+      # Opens the app for a few seconds: it has to start and stay open
+      - name: Smoke test
+        shell: bash
+        run: |
+          T=target/${{ matrix.target }}/release
+          alive() { # command…: runs it 15 s; fails if it exits before
+            "$@" & PID=$!
+            sleep 15
+            if kill -0 $PID 2>/dev/null; then echo "OK: still running"; kill $PID; else wait $PID; echo "FAILED: exited early ($?)"; exit 1; fi
+          }
+          case "${{ runner.os }}" in
+            Windows)
+              mkdir -p smoke && unzip -q out/Wax-portable-*.zip -d smoke
+              alive smoke/Wax/Wax.exe
+              test -d smoke/Wax/data && echo "OK: portable data folder created"
+              ;;
+            macOS)
+              alive $T/bundle/macos/Wax.app/Contents/MacOS/wax
+              ;;
+            Linux)
+              sudo apt-get install -y xvfb dbus-x11 libfuse2
+              chmod +x out/*.AppImage
+              alive xvfb-run -a dbus-run-session -- out/$(cd out && ls *.AppImage)
+              sudo apt-get install -y ./out/*.deb
+              alive xvfb-run -a dbus-run-session -- wax
+              ;;
+          esac
+
       - uses: actions/upload-artifact@v4
         with:
           name: wax-${{ runner.os }}
