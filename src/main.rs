@@ -145,6 +145,22 @@ pub fn clean(s: Option<impl AsRef<str>>) -> Option<String> {
     s.map(|v| v.as_ref().trim().to_string()).filter(|v| !v.is_empty())
 }
 
+/// A readable, file-system-safe name for cache files: "Architects - Machine - Single".
+pub fn file_name(s: &str) -> String {
+    let mut t: String = s.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { '_' } else { c }).collect();
+    t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut t: String = t.chars().take(120).collect();
+    while t.ends_with(['.', ' ']) {
+        t.pop();
+    }
+    let upper = t.to_ascii_uppercase();
+    let reserved = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "LPT1", "LPT2", "LPT3"];
+    if t.is_empty() || reserved.contains(&upper.as_str()) {
+        t.push('_');
+    }
+    t
+}
+
 pub fn path_hash(path: &Path) -> String {
     let mut h = DefaultHasher::new();
     path.hash(&mut h);
@@ -327,7 +343,9 @@ fn main() {
             covers::clean_image_cache,
             covers::covers_status,
             covers::image_candidates,
-            covers::save_custom_image,
+            covers::set_image,
+            covers::reset_image,
+            covers::migrate_cache_names,
             covers::place_image,
             covers::pick_image,
             lyrics::get_lyrics,

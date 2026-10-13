@@ -252,6 +252,10 @@ function buildIndex() {
 // Rust generates JPEG thumbnails (300 px for grids/lists, 640 px for headers)
 // so multi-MB covers are never decoded for every card.
 const coverP = new Map();
+// Cached images are named after the album / artist; S.imgStamp changes when one is replaced
+// by hand, so the WebView doesn't keep showing the old file.
+const coverName = a => `${a.albumArtist || a.artist} - ${a.title}`;
+const imgUrl = p => fileUrl(p) + (S.imgStamp ? `?v=${S.imgStamp}` : '');
 function albumCover(key, big = false) {
   const ck = key + (big ? '#lg' : '#sm');
   if (!coverP.has(ck)) {
@@ -259,8 +263,8 @@ function albumCover(key, big = false) {
     coverP.set(ck, a
       ? invoke('get_cover', { path: realPath(S.tracks[a.tracks[0]]), size: big ? 640 : 300,
           online: S.prefs.fetchCovers !== false ? { artist: a.albumArtist || a.artist, album: a.title, saveToFolder: !!S.prefs.saveCovers } : null,
-          shared: a.shared ? { album: a.title } : null, custom: S.prefs.coverOverrides?.[key] || null })
-        .then(c => c ? { url: fileUrl(c.path), path: c.path, color: c.color } : null).catch(() => null)
+          shared: a.shared ? { album: a.title } : null, name: coverName(a) })
+        .then(c => c ? { url: imgUrl(c.path), path: c.path, color: c.color } : null).catch(() => null)
       : Promise.resolve(null));
   }
   return coverP.get(ck);
@@ -567,7 +571,7 @@ const VIEWS = {
     const idxs = pl.tracks.map(p => S.byPath.get(p)).filter(i => i !== undefined);
     const keys = [...new Set(idxs.map(i => albumKeyOf(S.tracks[i])))].slice(0, 4);
     const art = pl.image
-      ? `<div class="cv art has-img pl-img" data-action="pl-edit" data-arg="${esc(pl.id)}" style="background-image:url('${fileUrl(pl.image)}')"></div>`
+      ? `<div class="cv art has-img pl-img" data-action="pl-edit" data-arg="${esc(pl.id)}" style="background-image:url('${imgUrl(pl.image)}')"></div>`
       : keys.length >= 4
         ? `<div class="art mosaic" data-action="pl-edit" data-arg="${esc(pl.id)}">${keys.map(k => cvHtml(k, '', 24)).join('')}</div>`
         : cvHtml(keys[0], 'art', 80, true).replace('class="cv art"', `class="cv art" data-action="pl-edit" data-arg="${esc(pl.id)}"`);
@@ -1583,8 +1587,8 @@ const artistP = new Map();
 function artistImage(name, big = false) {
   const k = name + (big ? '#lg' : '#sm');
   if (!artistP.has(k)) {
-    artistP.set(k, invoke('get_artist_image', { name, dir: S.artistDir.get(name) || null, size: big ? 640 : 300, online: S.prefs.fetchArtistImages !== false, custom: S.prefs.artistOverrides?.[name] || null })
-      .then(c => c ? { url: fileUrl(c.path), path: c.path, color: c.color } : null).catch(() => null));
+    artistP.set(k, invoke('get_artist_image', { name, dir: S.artistDir.get(name) || null, size: big ? 640 : 300, online: S.prefs.fetchArtistImages !== false })
+      .then(c => c ? { url: imgUrl(c.path), path: c.path, color: c.color } : null).catch(() => null));
   }
   return artistP.get(k);
 }
@@ -2293,6 +2297,7 @@ const extrasLoaded = new Promise(r => { extrasReady = r; });
   registerShortcuts();
   try { S.tracks = await invoke('load_library', { folders: S.prefs.folders }); } catch (e) { console.warn(e); }
   buildIndex();
+  await migrateCacheNames();
   renderSidebar();
   setVolume(S.prefs.volume, S.prefs.muted);
   syncModeButtons();

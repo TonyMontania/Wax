@@ -403,8 +403,9 @@ pub async fn lastfm_auth_finish(key: String, secret: String, token: String) -> R
 pub async fn lastfm_get(key: String, method: String, params: BTreeMap<String, String>, cache_days: u32) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let dir = data_dir().join("lastfm");
-        let id = format!("{method}|{}", params.iter().map(|(k, v)| format!("{k}={}", v.to_lowercase())).collect::<Vec<_>>().join("&"));
-        let file = dir.join(format!("{:x}.json", Md5::digest(id.as_bytes())));
+        // "artist.getInfo - Radiohead.json", "album.getInfo - Radiohead - OK Computer.json"
+        let what: Vec<&str> = ["artist", "album", "track", "user"].iter().filter_map(|k| params.get(*k).map(String::as_str)).collect();
+        let file = dir.join(format!("{}.json", crate::file_name(&format!("{method} - {}", what.join(" - ")))));
         if cache_days > 0 {
             let fresh = fs::metadata(&file)
                 .and_then(|m| m.modified())

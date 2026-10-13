@@ -64,7 +64,7 @@
     embed_covers: () => ({ tracks: [], errors: [] }), write_replaygain: () => ({ tracks: [], errors: [] }),
     discord_update: () => {}, lastfm_love: () => {}, append_history_bulk: () => {},
     image_candidates: ({ kind, artist }) => Array.from({ length: 8 }, (_, i) => ({ title: `${artist} ${i + 1}`, sub: kind === 'album' ? 'album' : `${i * 1000} fans`, thumb: cover(`C:\\x\\${artist}${i}\\y`), url: cover(`C:\\x\\${artist}${i}\\y`) })),
-    save_custom_image: ({ source }) => source, place_image: () => {}, pick_image: () => null,
+    set_image: ({ source }) => source, reset_image: () => {}, migrate_cache_names: () => [], clean_image_cache: () => ({ files: 0, bytes: 0 }), place_image: () => {}, pick_image: () => null,
     artist_releases: async ({ name }) => ({ name, releases: [{ title: `${name} — New Album`, date: new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10), kind: 'album', cover: cover(`C:\\r\\${name}\\x`), link: 'https://www.deezer.com' }, { title: 'Upcoming single', date: new Date(Date.now() + 9 * 864e5).toISOString().slice(0, 10), kind: 'single', cover: cover(`C:\\r\\${name}2\\x`), link: 'https://www.deezer.com' }] }),
     song_credits: ({ title }) => ({ title, artist: 'Radiohead', url: 'https://musicbrainz.org', credits: [{ role: 'Writer', names: ['Thom Yorke', 'Jonny Greenwood'] }, { role: 'Producer', names: ['Nigel Godrich'] }, { role: 'Guitar', names: ["Ed O'Brien"] }] }),
     search_lyrics: ({ query, paths }) => paths.slice(0, 4).map(p => ({ path: p, line: `…a line with ${query} in it…` })),

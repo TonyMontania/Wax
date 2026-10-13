@@ -9,7 +9,7 @@ use lofty::probe::Probe;
 use lofty::tag::{ItemKey, Tag, TagExt};
 use serde::{Deserialize, Serialize};
 
-use crate::{data_dir, http, path_hash};
+use crate::{data_dir, file_name, http};
 
 /* ───────────── Lyrics ─────────────
    Lookup order:
@@ -139,7 +139,7 @@ pub async fn get_lyrics(
 
         let dir = data_dir().join("lyrics");
         let _ = fs::create_dir_all(&dir);
-        let cache = dir.join(format!("{}.json", path_hash(p)));
+        let cache = dir.join(format!("{}.json", file_name(&format!("{artist} - {title}"))));
         if !force {
             if let Some(l) = fs::read_to_string(&cache).ok().and_then(|s| serde_json::from_str::<Lyrics>(&s).ok()) {
                 return l;

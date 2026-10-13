@@ -11,19 +11,18 @@ use lofty::config::ParseOptions;
 use lofty::file::TaggedFileExt;
 use lofty::probe::Probe;
 use lofty::tag::ItemKey;
-use md5::{Digest, Md5};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
-use crate::{data_dir, http, path_hash};
+use crate::{data_dir, file_name, http};
 
 /// Small JSON/text cache in data/cache/<kind>/.
 fn cached<T: Serialize + for<'de> Deserialize<'de>>(kind: &str, key: &str, days: u64, fetch: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let dir = data_dir().join("cache").join(kind);
-    let file = dir.join(format!("{:x}.json", Md5::digest(key.to_lowercase().as_bytes())));
+    let file = dir.join(format!("{}.json", file_name(key)));
     let fresh = fs::metadata(&file)
         .and_then(|m| m.modified())
         .ok()
@@ -155,7 +154,7 @@ fn role_name(rel: &Value) -> String {
 #[tauri::command]
 pub async fn song_credits(artist: String, title: String, duration_ms: u64) -> Result<Option<Credits>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        cached("credits", &format!("{artist}|{title}"), 30, || {
+        cached("credits", &format!("{artist} - {title}"), 30, || {
             let q = format!("recording:\"{}\" AND artist:\"{}\"", title.replace('"', ""), artist.replace('"', ""));
             let v = crate::online::mb_get("recording", &[("query", &q), ("limit", "15")])?;
             let recs = v["recordings"].as_array().cloned().unwrap_or_default();
@@ -230,7 +229,7 @@ fn fold(s: &str) -> String {
 }
 
 /// Lines of a song's lyrics: the .lrc/.txt next to it, the tags, or Wax's LRCLIB cache.
-fn lyric_lines(path: &str) -> Vec<String> {
+fn lyric_lines(path: &str, name: &str) -> Vec<String> {
     let p = Path::new(path);
     let mut text = ["lrc", "txt"].iter().find_map(|e| fs::read_to_string(p.with_extension(e)).ok());
     if text.is_none() {
@@ -241,7 +240,7 @@ fn lyric_lines(path: &str) -> Vec<String> {
             .and_then(|f| f.primary_tag().or_else(|| f.first_tag()).and_then(|t| t.get_string(&ItemKey::Lyrics).map(str::to_string)));
     }
     if text.is_none() {
-        let cache = data_dir().join("lyrics").join(format!("{}.json", path_hash(p)));
+        let cache = data_dir().join("lyrics").join(format!("{}.json", file_name(name)));
         if let Some(v) = fs::read_to_string(cache).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) {
             text = v["synced"].as_str().or(v["plain"].as_str()).map(str::to_string);
         }
@@ -272,16 +271,17 @@ pub struct LyricHit {
 /// Songs whose lyrics contain all the words of `query` (in one line, or else anywhere).
 /// The index is built on the first search (a few seconds) and kept in memory.
 #[tauri::command]
-pub async fn search_lyrics(query: String, paths: Vec<String>, rebuild: bool) -> Vec<LyricHit> {
+pub async fn search_lyrics(query: String, songs: Vec<(String, String)>, rebuild: bool) -> Vec<LyricHit> {
     tauri::async_runtime::spawn_blocking(move || {
         let words: Vec<String> = fold(&query).split(' ').filter(|w| w.len() > 1).map(str::to_string).collect();
         if words.is_empty() {
             return Vec::new();
         }
         let mut idx = LYRICS_INDEX.lock().unwrap_or_else(|e| e.into_inner());
-        if rebuild || idx.as_ref().map_or(true, |(n, _)| *n != paths.len()) {
-            let list: Vec<(String, Vec<String>)> = paths.par_iter().map(|p| (p.clone(), lyric_lines(p))).filter(|(_, l)| !l.is_empty()).collect();
-            *idx = Some((paths.len(), list));
+        // songs: (path, "Artist - Title")
+        if rebuild || idx.as_ref().map_or(true, |(n, _)| *n != songs.len()) {
+            let list: Vec<(String, Vec<String>)> = songs.par_iter().map(|(p, n)| (p.clone(), lyric_lines(p, n))).filter(|(_, l)| !l.is_empty()).collect();
+            *idx = Some((songs.len(), list));
         }
         let mut hits = Vec::new();
         for (path, lines) in &idx.as_ref().unwrap().1 {
@@ -357,7 +357,7 @@ pub struct EqProfile {
 #[tauri::command]
 pub async fn autoeq_profile(path: String) -> Result<EqProfile, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        cached("autoeq", &path, 90, || {
+        cached("autoeq", &path.replace("%20", " ").replace('/', " - "), 90, || {
             let name = path.rsplit('/').next().unwrap_or("");
             let text = http()
                 .get(&format!("{AUTOEQ}{path}/{name}%20ParametricEQ.txt"))

@@ -230,10 +230,11 @@ library.json          ← library cache: rescans only re-read files that changed
 history.jsonl         ← every play (Your Stats, Wrapped)
 loudness.json         ← R128 loudness analysis
 scrobble_queue.json   ← plays waiting to be sent while offline
-covers/  artists/     ← thumbnail cache
-custom/               ← covers, photos and playlist images you chose
-lyrics/               ← LRCLIB answers
-lastfm/  cache/       ← Last.fm, Deezer, MusicBrainz and AutoEQ answers
+covers/               ← "Architects - Machine - Single.jpg" (+ " (large)"), index.json
+artists/              ← "Currents.jpg" … (images you choose replace the ones found)
+playlists/            ← playlist images
+lyrics/               ← "Architects - Machine.json": LRCLIB answers
+lastfm/  cache/       ← Last.fm, Deezer, MusicBrainz and AutoEQ answers, named after what they're about
 ```
 
 Settings → About opens the program folder and the data folder.

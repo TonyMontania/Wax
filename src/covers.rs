@@ -2,9 +2,10 @@
 //!
 //! Album:  image chosen in Wax → embedded → image in the folder → (optional) Deezer.
 //! Artist: image chosen in Wax → image in the artist's folder → (optional) Deezer.
-//! Everything is cached as JPEG thumbnails in data/covers and data/artists. Next to them, one
-//! index.json per folder keeps each image's background color and whether it wasn't found
-//! (locally / online), so the folders only hold the .jpg files.
+//! Everything is cached as JPEG thumbnails named after the album or artist
+//! ("covers/Architects - Machine - Single.jpg", "artists/Currents.jpg"; the bigger size adds
+//! " (large)"). One index.json per folder keeps each image's background color and whether it
+//! wasn't found (locally / online). An image chosen by hand simply replaces the cached one.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -18,7 +19,7 @@ use lofty::file::TaggedFileExt;
 use lofty::picture::PictureType;
 use serde::{Deserialize, Serialize};
 
-use crate::{data_dir, has_ext, http, path_hash, IMAGE_EXT};
+use crate::{data_dir, file_name, has_ext, http, path_hash, IMAGE_EXT};
 
 #[derive(Serialize)]
 pub struct Cover {
@@ -86,6 +87,9 @@ struct Entry {
     /// Not found online either
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     nonet: bool,
+    /// Chosen by hand: never replaced automatically
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    custom: bool,
 }
 
 type Index = HashMap<String, Entry>;
@@ -112,7 +116,7 @@ fn load_index(dir: &str) -> Index {
             migrated = true;
         }
     }
-    idx.retain(|_, e| e.color.is_some() || e.none || e.nonet);
+    idx.retain(|_, e| e.color.is_some() || e.none || e.nonet || e.custom);
     if migrated {
         save_index(dir, &idx);
     }
@@ -328,13 +332,10 @@ pub struct Shared {
     album: String,
 }
 
-fn cover_for(path: &Path, size: u32, online: Option<OnlineCover>, shared: Option<Shared>) -> Option<Cover> {
-    let dir = data_dir().join("covers");
-    let _ = fs::create_dir_all(&dir);
+fn cover_for(path: &Path, size: u32, online: Option<OnlineCover>, shared: Option<Shared>, key: &str) -> Option<Cover> {
     let shared = shared.map(|s| s.album);
-    // Separate cache key, so covers taken from a shared folder before are looked up again
-    let name = cover_key(path, shared.is_some());
-    let out = dir.join(format!("{name}_{size}.jpg"));
+    let name = file_name(key);
+    let out = thumb_path("covers", &name, size);
     if out.exists() {
         return Some(result(&out, "covers", &name));
     }
@@ -368,15 +369,30 @@ fn cover_for(path: &Path, size: u32, online: Option<OnlineCover>, shared: Option
     write_thumb(&bytes, &out, "covers", &name, size, false).then(|| result(&out, "covers", &name))
 }
 
-/// Cache key of an album cover (the first track's path; shared folders get their own).
-fn cover_key(path: &Path, shared: bool) -> String {
+/// "Architects - Machine.jpg" (300 px), "Architects - Machine (large).jpg" (640 px)
+fn thumb_path(dir: &str, key: &str, size: u32) -> PathBuf {
+    let folder = data_dir().join(dir);
+    let _ = fs::create_dir_all(&folder);
+    match size {
+        300 => folder.join(format!("{key}.jpg")),
+        640 => folder.join(format!("{key} (large).jpg")),
+        n => folder.join(format!("{key} ({n}).jpg")),
+    }
+}
+/// File name → cache key ("X (large).jpg" → "X")
+fn key_of(file: &str) -> String {
+    let stem = file.strip_suffix(".jpg").unwrap_or(file);
+    match stem.rfind(" (") {
+        Some(i) if stem.ends_with(')') && (stem[i + 2..stem.len() - 1] == *"large" || stem[i + 2..stem.len() - 1].chars().all(|c| c.is_ascii_digit())) => stem[..i].to_string(),
+        _ => stem.to_string(),
+    }
+}
+/// Keys of older versions (hashes of the first track's path / the artist's name)
+fn old_cover_key(path: &Path, shared: bool) -> String {
     format!("{}{}", path_hash(path), if shared { "s" } else { "" })
 }
-fn artist_key(name: &str) -> String {
+fn old_artist_key(name: &str) -> String {
     path_hash(Path::new(&format!("artist:{}", name.to_lowercase())))
-}
-fn custom_key(file: &str) -> String {
-    format!("c{}", path_hash(Path::new(file)))
 }
 
 /// Full-size image for an album (to embed it): embedded, the folder's, or Deezer's.
@@ -416,35 +432,11 @@ pub async fn covers_status(albums: Vec<CoverCheck>) -> Vec<CoverStatus> {
     .unwrap_or_default()
 }
 
-/// Thumbnail of an image the user chose in Wax (data/custom). Each choice is a new file,
-/// so its thumbnails never get mixed up with older ones.
-fn custom_thumb(file: &str, size: u32, dir: &'static str, fill: bool) -> Option<Cover> {
-    let src = Path::new(file);
-    if !src.is_file() {
-        return None;
-    }
-    let cache = data_dir().join(dir);
-    let _ = fs::create_dir_all(&cache);
-    let key = custom_key(file);
-    let out = cache.join(format!("{key}_{size}.jpg"));
-    if !out.exists() {
-        let bytes = fs::read(src).ok()?;
-        if !write_thumb(&bytes, &out, dir, &key, size, fill) {
-            return None;
-        }
-    }
-    Some(result(&out, dir, &key))
-}
-
+/// `name`: "Album artist - Album", used to name the cached files.
 #[tauri::command]
-pub async fn get_cover(path: String, size: u32, online: Option<OnlineCover>, shared: Option<Shared>, custom: Option<String>) -> Option<Cover> {
+pub async fn get_cover(path: String, size: u32, online: Option<OnlineCover>, shared: Option<Shared>, name: String) -> Option<Cover> {
     let size = size.clamp(64, 1200);
-    tauri::async_runtime::spawn_blocking(move || {
-        custom.as_deref().and_then(|c| custom_thumb(c, size, "covers", false)).or_else(|| cover_for(Path::new(&path), size, online, shared))
-    })
-        .await
-        .ok()
-        .flatten()
+    tauri::async_runtime::spawn_blocking(move || cover_for(Path::new(&path), size, online, shared, &name)).await.ok().flatten()
 }
 
 /* ───────────── Artist photos ───────────── */
@@ -473,16 +465,11 @@ fn artist_folder_image(dir: &Path, name: &str) -> Option<Vec<u8>> {
 }
 
 #[tauri::command]
-pub async fn get_artist_image(name: String, dir: Option<String>, size: u32, online: bool, custom: Option<String>) -> Option<Cover> {
+pub async fn get_artist_image(name: String, dir: Option<String>, size: u32, online: bool) -> Option<Cover> {
     let size = size.clamp(64, 1200);
     tauri::async_runtime::spawn_blocking(move || {
-        if let Some(c) = custom.as_deref().and_then(|c| custom_thumb(c, size, "artists", true)) {
-            return Some(c);
-        }
-        let cache = data_dir().join("artists");
-        let _ = fs::create_dir_all(&cache);
-        let key = artist_key(&name);
-        let out = cache.join(format!("{key}_{size}.jpg"));
+        let key = file_name(&name);
+        let out = thumb_path("artists", &key, size);
         if out.exists() {
             return Some(result(&out, "artists", &key));
         }
@@ -586,32 +573,93 @@ pub async fn image_candidates(kind: String, artist: String, album: String) -> Re
     .map_err(|e| e.to_string())?
 }
 
-/// Saves an image chosen by the user (a Deezer URL or a file) into data/custom as a JPEG
-/// (at most 1400 px) and returns its path. `old` (a previous choice) is deleted.
-#[tauri::command]
-pub async fn save_custom_image(source: String, name: String, old: Option<String>) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let bytes = if source.starts_with("https://") {
-            download(&source).ok_or("Couldn't download the image")?
-        } else {
-            fs::read(&source).map_err(|e| format!("Couldn't read the image: {e}"))?
-        };
-        let img = image::load_from_memory(&bytes).map_err(|_| "That file isn't an image Wax can read".to_string())?;
-        let img = if img.width().max(img.height()) > 1400 { img.resize(1400, 1400, FilterType::Lanczos3) } else { img };
-        let dir = data_dir().join("custom");
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let safe: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).take(60).collect();
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        let out = dir.join(format!("{safe}-{stamp}.jpg"));
-        let f = fs::File::create(&out).map_err(|e| e.to_string())?;
-        JpegEncoder::new_with_quality(BufWriter::new(f), 92).encode_image(&img.to_rgb8()).map_err(|e| e.to_string())?;
-        if let Some(o) = old.filter(|o| Path::new(o).starts_with(&dir)) {
-            let _ = fs::remove_file(o);
+fn load_image(source: &str) -> Result<image::DynamicImage, String> {
+    let bytes = if source.starts_with("https://") {
+        download(source).ok_or("Couldn't download the image")?
+    } else {
+        fs::read(source).map_err(|e| format!("Couldn't read the image: {e}"))?
+    };
+    image::load_from_memory(&bytes).map_err(|_| "That file isn't an image Wax can read".to_string())
+}
+
+fn save_jpeg(img: &image::DynamicImage, out: &Path, quality: u8) -> Result<(), String> {
+    let tmp = out.with_extension("tmp");
+    let f = fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    JpegEncoder::new_with_quality(BufWriter::new(f), quality).encode_image(&img.to_rgb8()).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, out).map_err(|e| e.to_string())
+}
+
+/// Puts the thumbnails of a chosen image in place of the cached ones (the old ones are replaced).
+fn replace_thumbs(dir: &'static str, key: &str, img: &image::DynamicImage) -> Result<(), String> {
+    let fill = dir == "artists";
+    for size in [300u32, 640] {
+        let t = if fill { img.resize_to_fill(size, size, FilterType::Triangle) } else if img.width().max(img.height()) > size { img.resize(size, size, FilterType::Triangle) } else { img.clone() };
+        save_jpeg(&t, &thumb_path(dir, key, size), 86)?;
+    }
+    // other sizes from before go away
+    if let Ok(rd) = fs::read_dir(data_dir().join(dir)) {
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if key_of(&n) == key && !n.ends_with(" (large).jpg") && n != format!("{key}.jpg") {
+                let _ = fs::remove_file(e.path());
+            }
         }
-        Ok(out.to_string_lossy().into_owned())
+    }
+    let color = dominant_color(&img.resize(200, 200, FilterType::Triangle).to_rgb8());
+    mark(dir, key, |e| {
+        e.color = Some(color);
+        e.custom = true;
+        e.none = false;
+        e.nonet = false;
+    });
+    Ok(())
+}
+
+/// An image chosen by hand (a Deezer URL or a file):
+///   kind "album" / "artist" → replaces that album's / artist's image in the cache
+///   kind "playlist"         → saved as playlists/<name>.jpg (`old` is deleted if different)
+/// Returns a full-size copy (to embed it or put it in the music folder): a temporary file for
+/// albums and artists, the saved file for playlists.
+#[tauri::command]
+pub async fn set_image(kind: String, name: String, source: String, old: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let img = load_image(&source)?;
+        let big = if img.width().max(img.height()) > 1400 { img.resize(1400, 1400, FilterType::Lanczos3) } else { img.clone() };
+        let key = file_name(&name);
+        if kind == "playlist" {
+            let dir = data_dir().join("playlists");
+            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let out = dir.join(format!("{key}.jpg"));
+            save_jpeg(&big, &out, 92)?;
+            if let Some(o) = old.filter(|o| Path::new(o) != out && Path::new(o).starts_with(data_dir())) {
+                let _ = fs::remove_file(o);
+            }
+            return Ok(out.to_string_lossy().into_owned());
+        }
+        replace_thumbs(if kind == "artist" { "artists" } else { "covers" }, &key, &img)?;
+        let tmp = std::env::temp_dir().join("wax-chosen-image.jpg");
+        save_jpeg(&big, &tmp, 92)?;
+        Ok(tmp.to_string_lossy().into_owned())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Back to the automatic image: the chosen one is deleted and looked up again.
+#[tauri::command]
+pub fn reset_image(kind: String, name: String) {
+    let dir: &'static str = if kind == "artist" { "artists" } else { "covers" };
+    let key = file_name(&name);
+    if let Ok(rd) = fs::read_dir(data_dir().join(dir)) {
+        for e in rd.flatten() {
+            if key_of(&e.file_name().to_string_lossy()) == key {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
+    with_index(dir, true, |i| {
+        i.remove(&key);
+    });
 }
 
 /// Copies a chosen image next to the music (cover.jpg / artist.jpg). If a file with that name
@@ -654,15 +702,9 @@ pub fn clear_image_misses() {
                 e.none = false;
                 e.nonet = false;
             }
-            i.retain(|_, e| e.color.is_some());
+            i.retain(|_, e| e.color.is_some() || e.custom);
         });
     }
-}
-
-#[derive(Deserialize)]
-pub struct AlbumRef {
-    path: String,
-    shared: bool,
 }
 
 #[derive(Serialize, Default)]
@@ -671,44 +713,35 @@ pub struct Cleaned {
     bytes: u64,
 }
 
-/// Deletes cached thumbnails of albums and artists that aren't in the library anymore, and
-/// images chosen by hand that were replaced. Only Wax's cache is touched, never your music folders.
+/// Deletes cached covers and photos of albums and artists that aren't in the library anymore,
+/// and playlist images nothing uses. Only Wax's cache is touched, never your music folders.
+/// `albums`: "Album artist - Album" names, `artists`: artist names, `playlists`: image files in use.
 #[tauri::command]
-pub async fn clean_image_cache(albums: Vec<AlbumRef>, artists: Vec<String>, custom: Vec<String>) -> Cleaned {
+pub async fn clean_image_cache(albums: Vec<String>, artists: Vec<String>, playlists: Vec<String>) -> Cleaned {
     tauri::async_runtime::spawn_blocking(move || {
         let mut out = Cleaned::default();
-        let mut keep_covers: HashSet<String> = albums.iter().map(|a| cover_key(Path::new(&a.path), a.shared)).collect();
-        let mut keep_artists: HashSet<String> = artists.iter().map(|n| artist_key(n)).collect();
-        for c in &custom {
-            keep_covers.insert(custom_key(c));
-            keep_artists.insert(custom_key(c));
-        }
+        let keep_covers: HashSet<String> = albums.iter().map(|n| file_name(n)).collect();
+        let keep_artists: HashSet<String> = artists.iter().map(|n| file_name(n)).collect();
         let mut sweep = |dir: &'static str, keep: &HashSet<String>| {
             with_index(dir, true, |i| i.retain(|k, _| keep.contains(k)));
             let Ok(rd) = fs::read_dir(data_dir().join(dir)) else { return };
             for e in rd.flatten() {
-                let p = e.path();
-                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if name.starts_with("index.json") {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with("index.json") || keep.contains(&key_of(&name)) {
                     continue;
                 }
-                // "<key>_300.jpg" → <key>
-                let key = name.split(['_', '.']).next().unwrap_or("");
-                if !keep.contains(key) {
-                    out.bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
-                    if fs::remove_file(&p).is_ok() {
-                        out.files += 1;
-                    }
+                out.bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
+                if fs::remove_file(e.path()).is_ok() {
+                    out.files += 1;
                 }
             }
         };
         sweep("covers", &keep_covers);
         sweep("artists", &keep_artists);
-        // Images chosen by hand that nothing uses anymore
-        let keep_custom: HashSet<PathBuf> = custom.iter().map(PathBuf::from).collect();
-        if let Ok(rd) = fs::read_dir(data_dir().join("custom")) {
+        let keep_pl: HashSet<PathBuf> = playlists.iter().map(PathBuf::from).collect();
+        if let Ok(rd) = fs::read_dir(data_dir().join("playlists")) {
             for e in rd.flatten() {
-                if !keep_custom.contains(&e.path()) {
+                if !keep_pl.contains(&e.path()) {
                     out.bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
                     if fs::remove_file(e.path()).is_ok() {
                         out.files += 1;
@@ -722,31 +755,153 @@ pub async fn clean_image_cache(albums: Vec<AlbumRef>, artists: Vec<String>, cust
     .unwrap_or_default()
 }
 
+/* ───────────── Moving the cache of older versions to readable names ───────────── */
+
+#[derive(Deserialize)]
+pub struct OldAlbum {
+    path: String,
+    shared: bool,
+    name: String,
+}
+#[derive(Deserialize)]
+pub struct OldLyrics {
+    path: String,
+    name: String,
+}
+#[derive(Deserialize)]
+pub struct OldCustom {
+    /// "album", "artist" or "playlist"
+    kind: String,
+    name: String,
+    file: String,
+}
+
+/// Renames the hash-named cache of older versions ("0aef35ad0e580b7b_300.jpg") to readable
+/// names, moves images chosen by hand out of data/custom, and deletes what can't be named
+/// (it's downloaded again when needed). Returns the new paths of playlist images (old → new).
+#[tauri::command]
+pub async fn migrate_cache_names(albums: Vec<OldAlbum>, artists: Vec<String>, lyrics: Vec<OldLyrics>, custom: Vec<OldCustom>) -> Vec<(String, String)> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let is_hash = |s: &str| s.len() >= 16 && s.chars().take(16).all(|c| c.is_ascii_hexdigit());
+        let mut moved = Vec::new();
+        let rename = |dir: &'static str, old: &str, new: &str| {
+            for (from, size) in [(format!("{old}_300.jpg"), 300u32), (format!("{old}_640.jpg"), 640)] {
+                let src = data_dir().join(dir).join(&from);
+                if !src.exists() {
+                    continue;
+                }
+                let dst = thumb_path(dir, new, size);
+                if dst.exists() || fs::rename(&src, &dst).is_err() {
+                    let _ = fs::remove_file(&src);
+                }
+            }
+            with_index(dir, true, |i| {
+                if let Some(e) = i.remove(old) {
+                    i.entry(new.to_string()).or_insert(e);
+                }
+            });
+        };
+        for a in &albums {
+            rename("covers", &old_cover_key(Path::new(&a.path), a.shared), &file_name(&a.name));
+            rename("covers", &old_cover_key(Path::new(&a.path), !a.shared), &file_name(&a.name));
+        }
+        for n in &artists {
+            rename("artists", &old_artist_key(n), &file_name(n));
+        }
+        // Images chosen by hand (data/custom)
+        for c in &custom {
+            let src = Path::new(&c.file);
+            if c.kind == "playlist" {
+                let dir = data_dir().join("playlists");
+                let _ = fs::create_dir_all(&dir);
+                let dst = dir.join(format!("{}.jpg", file_name(&c.name)));
+                if fs::rename(src, &dst).is_ok() || fs::copy(src, &dst).is_ok() {
+                    moved.push((c.file.clone(), dst.to_string_lossy().into_owned()));
+                }
+            } else if let Ok(img) = fs::read(src).ok().and_then(|b| image::load_from_memory(&b).ok()).ok_or(()) {
+                let _ = replace_thumbs(if c.kind == "artist" { "artists" } else { "covers" }, &file_name(&c.name), &img);
+            }
+            let _ = fs::remove_file(src);
+        }
+        let _ = fs::remove_dir(data_dir().join("custom"));
+        // Whatever is still named by a hash can't be matched: it's simply fetched again
+        for dir in ["covers", "artists"] {
+            if let Ok(rd) = fs::read_dir(data_dir().join(dir)) {
+                for e in rd.flatten() {
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    let stem = n.trim_start_matches('c');
+                    if n.ends_with(".jpg") && is_hash(stem) && stem.as_bytes().get(16).is_some_and(|b| *b == b'_' || *b == b's') {
+                        let _ = fs::remove_file(e.path());
+                    }
+                }
+            }
+            with_index(dir, true, |i| i.retain(|k, _| !(is_hash(k) && k.len() <= 17)));
+        }
+        // Lyrics: data/lyrics/<hash>.json → "Artist - Title.json"
+        let ldir = data_dir().join("lyrics");
+        for l in &lyrics {
+            let src = ldir.join(format!("{}.json", path_hash(Path::new(&l.path))));
+            if src.exists() {
+                let dst = ldir.join(format!("{}.json", file_name(&l.name)));
+                if dst.exists() || fs::rename(&src, &dst).is_err() {
+                    let _ = fs::remove_file(&src);
+                }
+            }
+        }
+        // Last.fm / Deezer / MusicBrainz / AutoEQ answers named by an MD5: dropped (asked again when needed)
+        let md5ish = |p: &Path| p.file_stem().is_some_and(|s| s.len() == 32 && s.to_string_lossy().chars().all(|c| c.is_ascii_hexdigit()));
+        let mut dirs = vec![data_dir().join("lastfm"), ldir];
+        if let Ok(rd) = fs::read_dir(data_dir().join("cache")) {
+            dirs.extend(rd.flatten().map(|e| e.path()));
+        }
+        for d in dirs {
+            if let Ok(rd) = fs::read_dir(&d) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if md5ish(&p) || (p.file_stem().is_some_and(|s| s.len() == 16 && s.to_string_lossy().chars().all(|c| c.is_ascii_hexdigit()))) {
+                        let _ = fs::remove_file(p);
+                    }
+                }
+            }
+        }
+        moved
+    })
+    .await
+    .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// Old marker files move into index.json, and cleaning keeps only what the library uses.
+    /// Old marker files move into index.json, old hash names become readable names, and
+    /// cleaning keeps only what the library uses.
     #[test]
-    fn cache_index_and_cleaning() {
+    fn cache_names_index_and_cleaning() {
         let dir = data_dir().join("covers");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let (a, b) = (cover_key(Path::new("C:/m/A/a.mp3"), false), cover_key(Path::new("C:/m/B/b.mp3"), true));
+        let (a, b) = (old_cover_key(Path::new("C:/m/A/a.mp3"), false), old_cover_key(Path::new("C:/m/B/b.mp3"), true));
         fs::write(dir.join(format!("{a}.color")), "#123456").unwrap();
         fs::write(dir.join(format!("{a}.none")), "").unwrap();
         fs::write(dir.join(format!("{a}_300.jpg")), "x").unwrap();
+        fs::write(dir.join(format!("{a}_640.jpg")), "x").unwrap();
         fs::write(dir.join(format!("{b}_300.jpg")), "xx").unwrap();
         fs::write(dir.join(format!("{b}.nonet")), "").unwrap();
-        let e = entry("covers", &a);
-        assert_eq!(e.color.as_deref(), Some("#123456"));
-        assert!(e.none && entry("covers", &b).nonet);
-        let left: Vec<String> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        assert!(left.iter().all(|n| n.ends_with(".jpg") || n == "index.json"), "{left:?}");
+        let albums = vec![
+            OldAlbum { path: "C:/m/A/a.mp3".into(), shared: false, name: "Artist A - Album: One?".into() },
+            OldAlbum { path: "C:/m/B/b.mp3".into(), shared: true, name: "Artist B - Single".into() },
+        ];
+        tauri::async_runtime::block_on(migrate_cache_names(albums, vec![], vec![], vec![]));
+        let mut left: Vec<String> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        println!("{left:?}");
+        assert_eq!(left, vec!["Artist A - Album_ One_ (large).jpg", "Artist A - Album_ One_.jpg", "Artist B - Single.jpg", "index.json"]);
+        assert_eq!(entry("covers", "Artist A - Album_ One_").color.as_deref(), Some("#123456"));
+        assert!(entry("covers", "Artist B - Single").nonet);
         // Only album A is still in the library
-        let r = tauri::async_runtime::block_on(clean_image_cache(vec![AlbumRef { path: "C:/m/A/a.mp3".into(), shared: false }], vec![], vec![]));
+        let r = tauri::async_runtime::block_on(clean_image_cache(vec!["Artist A - Album: One?".into()], vec![], vec![]));
         assert_eq!(r.files, 1);
-        assert!(dir.join(format!("{a}_300.jpg")).exists() && !dir.join(format!("{b}_300.jpg")).exists());
-        assert!(entry("covers", &b).color.is_none() && !entry("covers", &b).nonet);
+        assert!(!dir.join("Artist B - Single.jpg").exists() && dir.join("Artist A - Album_ One_.jpg").exists());
         let _ = fs::remove_dir_all(&dir);
     }
 

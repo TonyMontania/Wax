@@ -13,6 +13,7 @@ async function imagePicker({ kind, key, name }) {
   const store = kind === 'album' ? 'coverOverrides' : 'artistOverrides';
   const id = kind === 'album' ? key : name;
   const current = S.prefs[store]?.[id];
+  const imgName = kind === 'album' ? coverName(album) : name;
   const folder = kind === 'album' ? dirOf(realPath(S.tracks[album.tracks[0]])) : S.artistDir.get(name);
   const fileName = kind === 'album' ? (album.shared ? safeName(album.title) + '.jpg' : 'cover.jpg') : 'artist.jpg';
   let chosen = null;
@@ -33,10 +34,11 @@ async function imagePicker({ kind, key, name }) {
   const apply = async source => {
     const toFolder = $('#pick-folder', d)?.checked, embed = $('#pick-embed', d)?.checked;
     closeDialog();
+    // Replaces the cached image (the old one is deleted); `path` is a full-size copy
     let path;
-    try { path = await invoke('save_custom_image', { source, name: `${kind}-${id}`, old: current || null }); }
+    try { path = await invoke('set_image', { kind, name: imgName, source, old: null }); }
     catch (e) { toast(String(e), 5000); return; }
-    (S.prefs[store] ||= {})[id] = path;
+    (S.prefs[store] ||= {})[id] = true;
     savePrefs();
     if (toFolder && folder) await invoke('place_image', { from: path, to: `${folder}\\${fileName}` }).catch(e => toast("Couldn't save it in the folder: " + e, 5000));
     if (embed) await embedImage(album, path);
@@ -50,11 +52,12 @@ async function imagePicker({ kind, key, name }) {
     if (b === 'cancel' || e.target === modalBg) { closeDialog(); return; }
     if (b === 'ok' && chosen) apply(chosen);
     if (b === 'file') { const f = await invoke('pick_image'); if (f) apply(f); }
-    if (b === 'reset') { delete S.prefs[store][id]; savePrefs(); closeDialog(); refreshImages(); toast('Back to the automatic image'); }
+    if (b === 'reset') { await invoke('reset_image', { kind, name: imgName }); delete S.prefs[store][id]; savePrefs(); closeDialog(); refreshImages(); toast('Back to the automatic image'); }
   };
   modalBg.ondblclick = e => { const pk = e.target.closest('[data-pick]'); if (pk && chosen) apply(chosen); };
 }
 function refreshImages() {
+  S.imgStamp = Date.now();
   coverP.clear(); artistP.clear();
   $$('[data-cover]').forEach(el => paintCover(el));
   updateNowPlaying();
@@ -111,7 +114,7 @@ async function editPlaylistDetails(id) {
     pl.description = $('#pl-desc', d).value.trim();
     closeDialog();
     if (newFile) {
-      try { pl.image = await invoke('save_custom_image', { source: newFile, name: 'playlist-' + id, old: pl.image || null }); }
+      try { pl.image = await invoke('set_image', { kind: 'playlist', name: pl.name, source: newFile, old: pl.image || null }); S.imgStamp = Date.now(); }
       catch (err) { toast(String(err), 5000); }
     } else if (removed) delete pl.image;
     savePrefs(); renderSidebar(); rerender();
@@ -439,7 +442,7 @@ async function lyricSearch(q) {
   const box = $('#lyr-hits'); if (!box || norm(q).trim().length < 4) return;
   const seq = ++lyrSeq;
   box.innerHTML = `<div class="sec-h"><h2>In lyrics</h2></div><p class="sub"><span class="spin"></span> Searching the lyrics…</p>`;
-  const hits = await invoke('search_lyrics', { query: q, paths: S.tracks.filter(t => !t.cue).map(t => t.path), rebuild: false }).catch(() => []);
+  const hits = await invoke('search_lyrics', { query: q, songs: S.tracks.filter(t => !t.cue).map(t => [t.path, `${t.artist} - ${t.title}`]), rebuild: false }).catch(() => []);
   if (seq !== lyrSeq || route.view !== 'search') return;
   const b = $('#lyr-hits'); if (!b) return;
   const idxs = hits.map(h => S.byPath.get(h.path)).filter(i => i !== undefined);
@@ -725,14 +728,32 @@ setTimeout(() => {
   if (S.prefs.autoUpdate !== false && Date.now() - (S.prefs.updateCheckedAt || 0) > 20 * 3600 * 1000) checkUpdates(false);
 }, 8000);
 
+/* ───────────── Readable cache names (once, for data from older versions) ───────────── */
+async function migrateCacheNames() {
+  if (S.prefs.cacheNames === 2 || !S.tracks.length) return;
+  const albums = S.albums.map(a => ({ path: realPath(S.tracks[a.tracks[0]]), shared: !!a.shared, name: coverName(a) }));
+  const artists = S.artists.map(a => a.name);
+  const lyrics = S.tracks.filter(t => !t.cue).map(t => ({ path: t.path, name: `${t.artist} - ${t.title}` }));
+  const isFile = v => typeof v === 'string' && v;
+  const custom = [
+    ...Object.entries(S.prefs.coverOverrides || {}).filter(([k, v]) => isFile(v) && S.albumMap.has(k)).map(([k, v]) => ({ kind: 'album', name: coverName(S.albumMap.get(k)), file: v })),
+    ...Object.entries(S.prefs.artistOverrides || {}).filter(([, v]) => isFile(v)).map(([n, v]) => ({ kind: 'artist', name: n, file: v })),
+    ...S.prefs.playlists.filter(p => isFile(p.image) && /[\\/]custom[\\/]/.test(p.image)).map(p => ({ kind: 'playlist', name: p.name, file: p.image })),
+  ];
+  const moved = new Map(await invoke('migrate_cache_names', { albums, artists, lyrics, custom }).catch(() => []));
+  for (const pl of S.prefs.playlists) if (moved.has(pl.image)) pl.image = moved.get(pl.image);
+  for (const store of ['coverOverrides', 'artistOverrides']) for (const k of Object.keys(S.prefs[store] || {})) S.prefs[store][k] = true;
+  S.prefs.cacheNames = 2; savePrefs();
+}
+
 /* ───────────── Cleaning the image cache ───────────── */
 async function cleanImageCache(manual = false) {
   // Never with an empty library (e.g. the music drive is unplugged): it would delete everything
   if (!S.tracks.length) { if (manual) toast('Your library is empty: nothing is cleaned'); return; }
-  const albums = S.albums.map(a => ({ path: realPath(S.tracks[a.tracks[0]]), shared: !!a.shared }));
+  const albums = S.albums.map(coverName);
   const artists = S.artists.map(a => a.name);
-  const custom = [...Object.values(S.prefs.coverOverrides || {}), ...Object.values(S.prefs.artistOverrides || {}), ...S.prefs.playlists.map(p => p.image)].filter(Boolean);
-  const r = await invoke('clean_image_cache', { albums, artists, custom }).catch(() => null);
+  const playlists = S.prefs.playlists.map(p => p.image).filter(Boolean);
+  const r = await invoke('clean_image_cache', { albums, artists, playlists }).catch(() => null);
   if (!r) return;
   S.prefs.cacheCleanedAt = Date.now(); savePrefs();
   if (manual) toast(r.files ? `Removed ${plural(r.files, 'unused image', 'unused images')} (${(r.bytes / 1048576).toFixed(1)} MB)` : 'Nothing to clean: every saved image is in use', 4000);
