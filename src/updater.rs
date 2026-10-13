@@ -216,10 +216,7 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
             Install::WindowsInstaller => {
                 // Once Wax has closed: the setup in update mode (/UPDATE keeps the folder of the
                 // current install, /P shows only a progress bar, /R opens Wax again when done)
-                let script = format!("@echo off
-ping -n 3 127.0.0.1 >nul
-\"{}\" /P /UPDATE /R
-", file.display());
+                let script = format!("@echo off\r\nping -n 3 127.0.0.1 >nul\r\n\"{}\" /P /UPDATE /R\r\n", file.display());
                 run_detached(&script)?;
                 Ok("exit".into())
             }
