@@ -60,7 +60,7 @@ jobs:
               cp $T/bundle/nsis/*-setup.exe out/
               mkdir -p portable/Wax
               cp $T/wax.exe portable/Wax/Wax.exe
-              cp packaging/portable/README.txt packaging/portable/portable portable/Wax/
+              cp packaging/portable/README.txt portable/Wax/
               (cd portable && 7z a -tzip ../out/Wax-portable-$VER-win64.zip Wax)
               ;;
             macOS)
