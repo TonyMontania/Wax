@@ -1,180 +1,264 @@
+<div align="center">
+
+<img src="icons/icon.png" width="96" alt="Wax logo">
+
 # Wax
 
-A **local** music player with the classic Spotify interface (2015–2017). Rust + Tauri 2.
+**Your own music, in the Spotify you remember.**
+
+The classic 2015–2017 Spotify desktop look · for the files on your computer · no streaming, no account
+
+[![Download](https://img.shields.io/badge/Download-latest%20release-1db954?style=for-the-badge)](https://github.com/TonyMontania/Wax/releases/latest)
+
+[![Latest release](https://img.shields.io/github/v/release/TonyMontania/Wax?color=1db954&label=release)](https://github.com/TonyMontania/Wax/releases/latest)
+[![Release date](https://img.shields.io/github/release-date/TonyMontania/Wax?color=1db954&label=released)](https://github.com/TonyMontania/Wax/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/TonyMontania/Wax/total?color=1db954)](https://github.com/TonyMontania/Wax/releases)
+[![Build](https://github.com/TonyMontania/Wax/actions/workflows/build.yml/badge.svg)](https://github.com/TonyMontania/Wax/actions/workflows/build.yml)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-1db954)](LICENSE)
+
+![Platform: Windows · macOS · Linux](https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-informational)
+![Local-first](https://img.shields.io/badge/local--first-no%20account%20%C2%B7%20no%20telemetry-success)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
+[![GitHub stars](https://img.shields.io/github/stars/TonyMontania/Wax?style=social)](https://github.com/TonyMontania/Wax/stargazers)
+
+</div>
+
+- **The old Spotify, for your files** — Browse, Radio, Your Music, artist pages with Popular and Related Artists, the lyrics column.
+- **Sounds right** — its own Rust audio engine: gapless, crossfade, ReplayGain, 10-band EQ, AutoEQ for your headphones, WASAPI exclusive mode.
+- **Takes care of your library** — tags, covers, synced lyrics, duplicates, organizing files, CUE sheets, Last.fm.
+- **Yours, offline** — no accounts, no cloud, no telemetry. Your library stays in your folders; Wax keeps a few JSON files you own.
+
+## Contents
+
+- [Install](#install)
+- [Why Wax?](#why-wax)
+- [Features](#features)
+- [Your music folder](#your-music-folder)
+- [Online services](#online-services)
+- [Storage](#storage)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Privacy](#privacy)
+- [Credits](#credits)
+- [License](#license)
 
 ## Install
-Download it from [Releases](https://github.com/TonyMontania/Wax/releases/latest):
 
-| System | File | Notes |
-|---|---|---|
-| Windows | `Wax_x.y.z_x64-setup.exe` | Installer: for your user or for everyone, in any folder or drive |
-| Windows | `Wax-portable-x.y.z-win64.zip` | Portable: unzip anywhere (a folder, another drive, a USB stick) |
-| macOS (Intel and Apple Silicon) | `Wax_x.y.z_universal.dmg` | Drag Wax to Applications |
-| Linux | `.AppImage` | Runs anywhere: make it executable and open it |
-| Linux (Debian, Ubuntu, Mint…) | `.deb` | `sudo apt install ./Wax_x.y.z_amd64.deb` |
-| Linux (Fedora, openSUSE…) | `.rpm` | `sudo dnf install ./Wax-x.y.z-1.x86_64.rpm` |
+| OS | Quickest way |
+| --- | --- |
+| **Windows** | [`-setup.exe` installer](https://github.com/TonyMontania/Wax/releases/latest) — or the portable `.zip` |
+| **macOS** | [`.dmg`](https://github.com/TonyMontania/Wax/releases/latest) — one build for Apple Silicon and Intel |
+| **Linux** | [`.AppImage`](https://github.com/TonyMontania/Wax/releases/latest), `.deb` or `.rpm` |
 
-Windows uses WebView2 (it comes with Windows 10/11). The macOS build isn't signed by Apple yet:
-the first time, right-click Wax → Open.
+Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper show a one-time warning on first launch. Details for every package are below.
 
-**Updates**: Settings → About checks GitHub (also automatically once a day) and installs the new
-version in the same place Wax is: the portable folder, the install folder, Wax.app or the AppImage.
-The `.deb`/`.rpm` packages are handed to your system's installer.
+<details>
+<summary><b>Windows — all packages</b></summary>
 
-## Where your data is
-- **Portable**: in `data` next to `Wax.exe` (take the whole folder with you).
-- **Installed**: `%APPDATA%\Wax` (Windows), `~/Library/Application Support/Wax` (macOS),
-  `~/.local/share/wax` (Linux).
+| Package | File | Command | Notes |
+| --- | --- | --- | --- |
+| **Installer** | `Wax_<version>_x64-setup.exe` | double-click | For your user (no admin) or for everyone, in any folder or drive. Recommended. |
+| **Portable ZIP** | `Wax-portable-<version>-win64.zip` | extract, run `Wax.exe` | Anywhere: a folder, another drive, a USB stick. Windows 10 21H2+ and Windows 11 already have WebView2; on older builds install the [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/) once. |
 
-Settings → About opens both the program folder and the data folder. Inside the data folder:
-- `state.json` — folders, playlists, favorites, settings, equalizer, shortcuts
-- `library.json` — library cache (rescans only re-read the files that changed)
-- `covers`, `artists`, `custom` — cover and photo thumbnails, images you chose
-- `lyrics` — downloaded lyrics
-- `loudness.json` — loudness analysis (normalization)
-- `history.jsonl` — listening history (stats)
-- `scrobble_queue.json` — plays waiting to be sent to Last.fm / ListenBrainz
-- `lastfm`, `cache` — cached answers from Last.fm, Deezer, MusicBrainz and AutoEQ
+Data lives under `%APPDATA%\Wax\` (the portable build keeps it in `data\` next to `Wax.exe`).
 
-## Sound
-- **Own Rust engine** (symphonia + rodio): MP3, FLAC, OGG Vorbis, M4A/AAC, ALAC, WAV, AIFF.
-- **CUE sheets**: an album ripped as one file plus a `.cue` shows up as separate tracks, played
-  sample-exact and gapless (the big file itself is hidden).
-  OPUS and other formats are played by the WebView's engine (no equalizer or crossfade).
-- **Gapless**: the next track is opened ahead of time and chained into the same stream;
-  the silence MP3/AAC encoders add is trimmed.
-- **Crossfade** from 0 to 12 s (Settings). By default it isn't applied between consecutive tracks of the same album.
-- **Volume normalization**: ReplayGain from the tags or Wax's own EBU R128 analysis (−18 LUFS target),
-  per track or per album, with a preamp and clipping protection.
-- **10-band equalizer** with presets (button next to the queue, or Settings → Equalizer).
-- **AutoEQ**: pick your headphones (about 9,000 measured models) and Wax corrects their sound
-  with their parametric profile. **Crossfeed** (light / medium / strong) for headphones.
-- **Output device** and **WASAPI exclusive mode** (Settings → Audio output): the sound skips the
-  Windows mixer. If exclusive mode can't be used, Wax falls back to the normal output.
-- Decoding happens in its own thread with a ~3 s buffer, and sample rates are converted with a
-  band-limited resampler (rubato), so a busy disk can't make the sound stutter.
+</details>
 
-## Library layout
+<details>
+<summary><b>macOS — all packages</b></summary>
+
+| Package | File | Command | Notes |
+| --- | --- | --- | --- |
+| **DMG** | `Wax_<version>_universal.dmg` | drag to Applications | Universal: M1 / M2 / M3 / M4 and Intel Macs. macOS 10.15+. |
+
+First launch on macOS 14 Sonoma or earlier: right-click **Open** → **Open**. On macOS 15 Sequoia the right-click bypass is gone, so run once from the Terminal:
+
+```bash
+xattr -cr /Applications/Wax.app
+open /Applications/Wax.app
+```
+
+The `xattr -cr` clears the quarantine flag Gatekeeper set on the download.
+
+Data lives under `~/Library/Application Support/Wax/`.
+
+</details>
+
+<details>
+<summary><b>Linux — all packages</b></summary>
+
+| Package | File | Command | Notes |
+| --- | --- | --- | --- |
+| **AppImage** | `Wax_<version>_amd64.AppImage` | `chmod +x Wax_<version>_amd64.AppImage && ./Wax_<version>_amd64.AppImage` | Universal, updates itself. Debian / Ubuntu 22.04+ need `libfuse2` (`sudo apt install libfuse2`). No FUSE? Run with `--appimage-extract-and-run`. |
+| **Debian package** | `Wax_<version>_amd64.deb` | `sudo apt install ./Wax_<version>_amd64.deb` | Debian, Ubuntu, Mint, Pop!_OS, elementary. |
+| **RPM package** | `Wax-<version>-1.x86_64.rpm` | `sudo dnf install ./Wax-<version>-1.x86_64.rpm` | Fedora, RHEL, Rocky, Alma, openSUSE. |
+
+Data lives under `~/.local/share/wax/`.
+
+</details>
+
+**Updates** — Settings → About checks GitHub Releases (and once a day on its own) and installs the new version in the same place Wax is: the portable folder, the install folder, `Wax.app` or the AppImage. `.deb` / `.rpm` updates are handed to your system's installer.
+
+Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#running-locally).
+
+## Why Wax?
+
+| | Streaming apps | Classic local players | **Wax** |
+| --- | :---: | :---: | :---: |
+| Plays the files you own (FLAC, MP3, CUE…) | — | ✓ | ✓ |
+| The classic Spotify look and flow | ✓ | — | ✓ |
+| Artist pages: Popular, Related Artists, bio | ✓ | Rarely | ✓ (Last.fm) |
+| Synced lyrics | ✓ | Plugins | ✓ (LRCLIB, .lrc) |
+| Gapless, ReplayGain, EQ, exclusive mode | Partly | ✓ | ✓ |
+| Fixes your tags, covers and folders | — | Varies | ✓ |
+| Works offline, no account | — | ✓ | ✓ |
+| Free and open source | — | Varies | ✓ |
+
+## Features
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**Listen**
+
+- **Own audio engine** in Rust (symphonia): MP3, FLAC, OGG, M4A/AAC, ALAC, WAV, AIFF; OPUS through the WebView
+- **Gapless** playback (encoder silence trimmed) and **crossfade** 0–12 s, skipped inside live / concept albums
+- **ReplayGain** from tags or Wax's own **EBU R128** analysis (track / album), preamp, clipping protection
+- **10-band equalizer** with presets, **AutoEQ** for ~9,000 headphones, **crossfeed**
+- **Output device** picker and **WASAPI exclusive mode**
+- High-quality resampling and a 3 s decode buffer: no stutter, no harsh highs
+- **CUE sheets** — one-file albums split into sample-exact, gapless tracks
+- **Synced lyrics** column (LRCGET `.lrc`, embedded, LRCLIB) and **full-screen Now Playing** (F11)
+- **Auto DJ**, artist **Radio**, **sleep timer**, mini player
+
+</td>
+<td width="33%" valign="top">
+
+**Your library**
+
+- **Artists = your artist folders** — guests never clutter the list
+- **Browse, Albums, Songs, Genres, Folders**, Recently Played, Favorites, **ratings**
+- **Playlists** with folders, images, descriptions, drag & drop, M3U import / export
+- **Import Spotify playlists** (Exportify CSV) — rebuilt with your files
+- **Edit tags** in bulk, **MusicBrainz** fill-in, **tags from file names**, **fix capitalization**, **credits**
+- **Covers & artist photos** — local, Deezer, or pick your own; embed in bulk
+- **Organize files** with saved patterns — and **undo**
+- **Library check** — missing covers, lyrics, years, track numbers, genres, ReplayGain, with one-click fixes
+- **Duplicates** — keeps the best copy, moves the rest to the Recycle Bin
+- **Copy to a USB stick / phone**, optionally converting to MP3
+- New music is picked up as soon as you copy it
+
+</td>
+<td width="33%" valign="top">
+
+**Discover & desktop**
+
+- **Last.fm** — scrobbling, Popular songs, Related Artists, bios, album notes, tags as genres, ♥ ↔ Loved tracks, import your history
+- **ListenBrainz** scrobbling (queued when offline)
+- **New Releases** from your artists you don't own yet
+- **Your Stats** and a yearly **Wrapped**
+- **Search inside lyrics**
+- **Media keys**, Windows media panel, taskbar ⏮ ⏯ ⏭ buttons
+- **Tray**, **global shortcuts**, song-change notification
+- **Discord** "Listening to" status
+- **Start with Windows** (or macOS / Linux login), Start-menu shortcut
+- **8 accent colors**
+- **In-app updater** — installs where Wax lives
+- **Portable or installed**, your choice
+
+</td>
+</tr>
+</table>
+
+## Your music folder
+
 Wax expects this layout inside each music folder you add:
 
 ```
-Music > Artist > Album or EP > tracks (+ optional cover.jpg)
+Music/
+  Artist/
+    Album or EP/
+      01 - Song.flac
+      cover.jpg          ← optional (or embedded in the files)
+    Singles/             ← loose singles work too
+      Song.mp3
+  Another Artist/
+    …/Album.flac + Album.cue   ← one-file albums with a CUE sheet
 ```
 
-- **Artists** = the artist folders. Every track belongs to the artist of its folder,
-  whatever the tags say; guests and collaborations never create stand-alone artists.
-- Lists show the artist exactly as tagged, linking only the names that exist as an artist folder.
-- **Artist photos**: `artist.jpg` / `folder.jpg` in the artist's folder; if there isn't one, from Deezer.
-- **Singles folders**: a folder with several loose releases (e.g. `Artist\Singles\*.mp3`) works too;
-  each track keeps its own release. There a generic `cover.jpg` is ignored; only embedded art or an
-  image named after the track or the single (`Song.jpg`) is used.
-- **Missing covers**: from Deezer, optionally saved as `cover.jpg` (as `Song.jpg` in a singles folder).
-- **Genres** (Browse → Genres), **Your Favorites** (♥) and **Your Stats**.
-- **Radio** lists every artist; each artist's radio shuffles all of their albums.
-- **Auto DJ**: when the list ends, keeps playing similar music (artist, genre, era).
-- **New music**: Wax watches your folders and adds whatever you copy or move.
-- **Folders** (sidebar): browse the disk exactly as it is arranged, and play any folder.
-- **Ratings** (1–5 stars) in the song lists, kept in Wax's data (sortable in Songs).
-- **Change a cover or an artist photo** (right-click): pick one from Deezer or a file of your own;
-  optionally saved as cover.jpg / artist.jpg and embedded in the files.
-- **Full-screen "Now playing"** with synced lyrics (button next to the mini player).
-- **Wrapped** (Your Stats): your year in music. **New Releases** (Browse): what your artists
-  released that you don't have yet (Deezer). Search also looks **inside the lyrics**.
-- **Accent color** (Settings → Appearance). Playlists can have their own **image and description**.
+- **Artists** are the artist folders: every song belongs to its folder's artist, whatever the tags say; "feat." guests and collaborations link to existing artists but never create new ones.
+- **Artist photos**: `artist.jpg` / `folder.jpg` in the artist's folder, otherwise Deezer — or choose one (right-click the artist).
+- **Lyrics**: `Song.lrc` / `Song.txt` next to the file (what [LRCGET](https://github.com/tranxuanthang/lrcget) downloads), embedded lyrics, or LRCLIB.
 
-## Last.fm
-With your own (free) API key — Settings → Scrobbling:
-- **Popular** on the artist page comes from Last.fm (5 songs, "Show 5 more"), like the old Spotify.
-- **Related Artists** tab: similar artists in your library first, then the ones you don't have.
-- **About** tab: biography, listeners and tags; album pages show the album's description.
-- **Tags as genres** for songs without a genre (optional; files aren't changed).
-- Once connected: **♥ syncs with your Loved tracks**, and you can **import** your loved tracks
-  and your **listening history** (only plays older than Wax's own history, so nothing is counted twice).
+## Online services
 
-## Tags and files
-- **Edit info** (right-click): one or several songs at once. Several artists or genres
-  are separated with `;` and saved as multiple values.
-- **Fill in from MusicBrainz** (right-click an album): pick the release and titles, artists
-  (including the `ARTISTS` field), track numbers, year and genres are corrected.
-- **Organize files**: renames (and optionally moves) files with a pattern, by default
-  `{artist}\{folder}\{track} - {title}`. `{folder}` keeps the folders each file is in now
-  (e.g. `Singles\Song`), so the default only renames files; use `{album}` instead to rebuild
-  folders from the tags. Patterns can be saved as named presets (Settings → Organize files →
-  Edit patterns…) and switched from the organize window. It shows what will change first; it also moves `.lrc` files and
-  covers, and updates playlists, favorites and history.
-- **M3U playlists**: import (`···` menu) and export (right-click a playlist).
-- **Spotify playlists**: export them with [Exportify](https://exportify.app) and import the CSVs;
-  Wax rebuilds them with your files and lists the songs you don't have.
-- **Tags from the file name** (`{track} - {title}`, folders too), **fix capitalization** in bulk,
-  and **credits** from MusicBrainz (right-click a song). **Organize files** can be undone.
-- **Playlist folders** and **drag & drop**: songs onto a playlist or the queue button, reorder a
-  playlist or the queue, playlists into folders.
-- **Copy to folder** (right-click a playlist, album or songs): for a USB stick, the car or a phone,
-  as `Artist\Album\song` or numbered in one folder, with an `.m3u8`, optionally converting to MP3
-  (LAME, 128–320 kbps, tags and cover kept).
-- **Library check** (`···` menu or Settings): albums without a cover or with the cover only in the
-  folder, songs without lyrics, year, track number, genre or ReplayGain, with a fix for each:
-  embed covers (from the folder or Deezer), download lyrics for everything, MusicBrainz, and
-  write Wax's loudness analysis as ReplayGain tags.
-- **Duplicates**: same artist, title and length; keeps the best copy (lossless / highest bitrate),
-  sends the rest to the Recycle Bin and moves playlists, favorites and ratings to the copy kept.
+Everything online is optional. Keys (only for the services that need them) go in **Settings**.
 
-## Lyrics
-Microphone button in the player bar. Wax looks in this order:
-1. `song.lrc` / `song.txt` next to the file (what [LRCGET](https://github.com/tranxuanthang/lrcget) downloads)
-2. Lyrics embedded in the tags
-3. Cache in `data\lyrics`
-4. [LRCLIB](https://lrclib.net), the same database LRCGET uses
+| Service | What it's for | Auth |
+| --- | --- | --- |
+| [Deezer](https://www.deezer.com/) | Missing album covers, artist photos, cover picker, New Releases | No key |
+| [MusicBrainz](https://musicbrainz.org/) | Fill in album tags (titles, artists, numbers, year, genres), song credits | No key |
+| [LRCLIB](https://lrclib.net/) | Lyrics, synced when available | No key |
+| [Last.fm](https://www.last.fm/) | Scrobbling, Popular songs, Related Artists, bios, tags, Loved tracks, history import | Free API key (step-by-step guide inside Wax) |
+| [ListenBrainz](https://listenbrainz.org/) | Scrobbling | User token |
+| [AutoEQ](https://github.com/jaakkopasanen/AutoEq) | Headphone correction profiles | No key |
+| [Discord](https://discord.com/developers/applications) | "Listening to" status | Your own application ID (guide inside Wax) |
+| [GitHub Releases](https://github.com/TonyMontania/Wax/releases) | Update check | No key |
 
-Click a line to jump to that moment. At the bottom of the panel: **Save .lrc**, **Embed** and search again.
+## Storage
 
-## Desktop
-- **Media keys** and the Windows media panel (with cover art).
-- **⏮ ⏯ ⏭ buttons** in the taskbar thumbnail.
-- **System tray** (optional: closing minimizes to the tray).
-- Always-on-top **mini player**.
-- **Notification on song change** when Wax isn't in the foreground.
-- Configurable **global shortcuts** (by default Ctrl+Alt+P, Ctrl+Alt+← / →, Ctrl+Alt+↑ / ↓, Ctrl+Alt+L…).
-- **Last.fm / ListenBrainz** scrobbling, queued when offline.
-- **Sleep timer** (moon button): 15–90 minutes, with a fade out, or at the end of the song.
-- **Discord status** ("Listening to …") with your own Discord application ID (Settings).
+Your music is never moved or changed unless you ask (tag editing, organizing, embedding). Wax's own data lives in the OS's app data folder — or in `data/` next to the program for the portable build:
 
-## Shortcuts inside Wax
-| Key | Action |
-|---|---|
-| Space | Play / pause |
-| Ctrl + ← / → | Previous / next |
-| Ctrl + ↑ / ↓ | Volume |
-| Ctrl + F | Filter / search |
-| Ctrl + A, Shift/Ctrl + click | Multiple selection |
-| Alt + ← / → | Back / forward |
-| Double-click | Play song |
-
-## Building
-Rust (stable) and, on Linux, the WebKitGTK/GStreamer/ALSA development packages listed in
-`.github/workflows/build.yml`.
 ```
-cargo build --release                               # just the program: target/release/wax(.exe)
-npx @tauri-apps/cli@2 build --bundles nsis          # Windows installer (deb,rpm,appimage / app,dmg elsewhere)
+state.json            ← folders, playlists, favorites, ratings, settings, EQ, shortcuts
+library.json          ← library cache: rescans only re-read files that changed
+history.jsonl         ← every play (Your Stats, Wrapped)
+loudness.json         ← R128 loudness analysis
+scrobble_queue.json   ← plays waiting to be sent while offline
+covers/  artists/     ← thumbnail cache
+custom/               ← covers, photos and playlist images you chose
+lyrics/               ← LRCLIB answers
+lastfm/  cache/       ← Last.fm, Deezer, MusicBrainz and AutoEQ answers
 ```
-GitHub Actions builds every platform (Actions → Build → Run workflow). Audio engine tests:
-`WAX_TEST_AUDIO=<folder with a.flac b.mp3 c.m4a d.opus> cargo test --release audio::`
-Online tests (Deezer, MusicBrainz, Last.fm): `WAX_NET=1 cargo test --release deezer musicbrainz lastfm`
 
-## Structure
-- `src/audio.rs` — audio engine (decoding, gapless mixing, crossfade, equalizer, R128 analysis)
-- `src/player.rs` — engine commands, library analysis, Windows media controls
-- `src/library.rs` — incremental scanning, tags, organizer, M3U, history, watched folders
-- `src/covers.rs` — album covers and artist photos
-- `src/cue.rs` — CUE sheets
-- `src/discord.rs` — Discord status
-- `src/discover.rs` — new releases, credits, lyrics search, AutoEQ, Spotify CSV
-- `src/lyrics.rs` — lyrics
-- `src/online.rs` — MusicBrainz, Last.fm (scrobbling and info), ListenBrainz
-- `src/desktop.rs` — tray, taskbar, mini player, notifications, global shortcuts
-- `ui/` — interface (dependency-free HTML/CSS/JS): `app.js`, `extras.js` and `more.js` (the features above), `engine.js` (engine bridge), `mini.html`, `osd.html`
-- `dev/preview.html` — interface preview with fake data (`python -m http.server` in the root)
-- `dev/make_icon.py` — generates the icon
+Settings → About opens the program folder and the data folder.
+
+## Keyboard shortcuts
+
+- **Space** — play / pause
+- **Ctrl+← / →** — previous / next · **Ctrl+↑ / ↓** — volume
+- **Ctrl+F** — filter the current list / search
+- **Ctrl+A**, **Shift / Ctrl+click** — select several songs
+- **Alt+← / →** — back / forward
+- **F11** — full-screen Now Playing · **Esc** — close it
+- **Right-click** — quick actions on any song, album, artist or playlist
+- **Global** (work while Wax is in the background, configurable): Ctrl+Alt+P play / pause, Ctrl+Alt+← / → previous / next, Ctrl+Alt+↑ / ↓ volume, Ctrl+Alt+L favorite, Ctrl+Alt+W show Wax, Ctrl+Alt+M mini player
+
+## Privacy
+
+- **No accounts, no telemetry, no analytics.** Nothing is sent home.
+- **Outbound requests only for the services above** — and each can be turned off in Settings. The update check against GitHub Releases runs once a day (can be turned off too).
+- **Keys and tokens** you paste (Last.fm, ListenBrainz, Discord) live in `state.json` on your disk and are only sent to that service.
+
+## Credits
+
+- Audio: [symphonia](https://github.com/pdeljanov/Symphonia), [rodio](https://github.com/RustAudio/rodio) / [cpal](https://github.com/RustAudio/cpal), [rubato](https://github.com/HEnquist/rubato), [wasapi](https://github.com/HEnquist/wasapi-rs), [ebur128](https://github.com/sdroege/ebur128), [LAME](https://lame.sourceforge.io/) for MP3 conversion
+- Tags: [lofty](https://github.com/Serial-ATA/lofty-rs) · App: [Tauri](https://tauri.app/)
+- Headphone profiles: [AutoEQ](https://github.com/jaakkopasanen/AutoEq) by Jaakko Pasanen · Lyrics: [LRCLIB](https://lrclib.net/)
+- The look is a tribute to the 2015–2017 Spotify desktop app. Wax isn't affiliated with Spotify.
 
 ## License
-[GPL-3.0](LICENSE). The program includes LAME (LGPL) for MP3 conversion.
+
+[GPL-3.0](LICENSE) — free to use, study, share and modify; modified versions you distribute stay open source too. The program includes LAME (LGPL).
+
+---
+
+<div align="center">
+
+**If Wax is useful to you, a ⭐ on the repo helps other people find it.**
+
+</div>
+
+- Bugs / feature requests → [issues](https://github.com/TonyMontania/Wax/issues)
+- Building from source / contributing → [CONTRIBUTING.md](CONTRIBUTING.md)
+- Changelog → [releases page](https://github.com/TonyMontania/Wax/releases)
