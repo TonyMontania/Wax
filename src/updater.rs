@@ -1,6 +1,6 @@
 //! Updates from GitHub releases, installed wherever this copy of Wax is:
 //!   portable (Windows) → the new Wax.exe replaces the old one in the same folder
-//!   installer (Windows) → the new setup runs silently into the same install folder
+//!   installer (Windows) → the new setup runs in update mode over the same install folder
 //!   macOS              → the new Wax.app replaces the old one where it is
 //!   AppImage (Linux)   → the new .AppImage replaces the old file
 //!   .deb / .rpm        → the package is downloaded and opened with the system installer
@@ -214,13 +214,12 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
                 Ok("restart".into())
             }
             Install::WindowsInstaller => {
-                // Silent setup into the same folder once Wax has closed, then open it again
-                let d = dir.to_string_lossy();
-                let script = format!(
-                    "@echo off\r\nping -n 3 127.0.0.1 >nul\r\n\"{}\" /S /D={d}\r\nstart \"\" \"{}\"\r\n",
-                    file.display(),
-                    exe.display()
-                );
+                // Once Wax has closed: the setup in update mode (/UPDATE keeps the folder of the
+                // current install, /P shows only a progress bar, /R opens Wax again when done)
+                let script = format!("@echo off
+ping -n 3 127.0.0.1 >nul
+\"{}\" /P /UPDATE /R
+", file.display());
                 run_detached(&script)?;
                 Ok("exit".into())
             }
