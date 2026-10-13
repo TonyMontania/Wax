@@ -2,12 +2,15 @@
 //!
 //! Album:  image chosen in Wax → embedded → image in the folder → (optional) Deezer.
 //! Artist: image chosen in Wax → image in the artist's folder → (optional) Deezer.
-//! Everything is cached as JPEG thumbnails in data/covers and data/artists.
-//! Markers: `.none` = no local image, `.nonet` = not found online either.
+//! Everything is cached as JPEG thumbnails in data/covers and data/artists. Next to them, one
+//! index.json per folder keeps each image's background color and whether it wasn't found
+//! (locally / online), so the folders only hold the .jpg files.
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
@@ -71,8 +74,90 @@ fn dominant_color(img: &image::RgbImage) -> String {
     hsl_to_hex(h, if s < 0.08 { 0.0 } else { s.clamp(0.35, 0.75) }, 0.36)
 }
 
-/// Writes a JPEG thumbnail. `fill` crops to a square (artist photos).
-fn write_thumb(bytes: &[u8], out: &Path, color_file: &Path, size: u32, fill: bool) -> bool {
+/* ───────────── Cache index (colors and "not found" marks) ───────────── */
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct Entry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+    /// No image in the files or the folder
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    none: bool,
+    /// Not found online either
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    nonet: bool,
+}
+
+type Index = HashMap<String, Entry>;
+static INDEX: Mutex<Option<HashMap<&'static str, Index>>> = Mutex::new(None);
+
+/// Loads data/<dir>/index.json once. Marker files of older versions (.color/.none/.nonet)
+/// are moved into it and deleted.
+fn load_index(dir: &str) -> Index {
+    let folder = data_dir().join(dir);
+    let mut idx: Index = fs::read_to_string(folder.join("index.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let mut migrated = false;
+    if let Ok(rd) = fs::read_dir(&folder) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let (Some(ext), Some(key)) = (p.extension().and_then(|x| x.to_str()).map(str::to_string), p.file_stem().map(|x| x.to_string_lossy().into_owned())) else { continue };
+            let entry = idx.entry(key).or_default();
+            match ext.as_str() {
+                "color" => entry.color = fs::read_to_string(&p).ok().map(|c| c.trim().to_string()),
+                "none" => entry.none = true,
+                "nonet" => entry.nonet = true,
+                _ => continue,
+            }
+            let _ = fs::remove_file(&p);
+            migrated = true;
+        }
+    }
+    idx.retain(|_, e| e.color.is_some() || e.none || e.nonet);
+    if migrated {
+        save_index(dir, &idx);
+    }
+    idx
+}
+
+fn save_index(dir: &str, idx: &Index) {
+    let folder = data_dir().join(dir);
+    let _ = fs::create_dir_all(&folder);
+    let tmp = folder.join("index.json.tmp");
+    if fs::write(&tmp, serde_json::to_string(idx).unwrap_or_default()).is_ok() {
+        let _ = fs::rename(&tmp, folder.join("index.json"));
+    }
+}
+
+/// Reads or changes the index of "covers" or "artists" (changes are saved right away).
+fn with_index<R>(dir: &'static str, change: bool, f: impl FnOnce(&mut Index) -> R) -> R {
+    let mut all = INDEX.lock().unwrap_or_else(|e| e.into_inner());
+    let map = all.get_or_insert_with(HashMap::new);
+    let idx = map.entry(dir).or_insert_with(|| load_index(dir));
+    let r = f(idx);
+    if change {
+        save_index(dir, idx);
+    }
+    r
+}
+fn entry(dir: &'static str, key: &str) -> Entry {
+    with_index(dir, false, |i| i.get(key).cloned().unwrap_or_default())
+}
+fn mark(dir: &'static str, key: &str, f: impl FnOnce(&mut Entry)) {
+    with_index(dir, true, |i| f(i.entry(key.to_string()).or_default()));
+}
+
+/// After a rescan, albums without a local cover are checked again (new images may have been added).
+pub fn forget_local_misses() {
+    with_index("covers", true, |i| {
+        for e in i.values_mut() {
+            e.none = false;
+        }
+        i.retain(|_, e| e.color.is_some() || e.nonet);
+    });
+}
+
+/// Writes a JPEG thumbnail and remembers its color. `fill` crops to a square (artist photos).
+fn write_thumb(bytes: &[u8], out: &Path, dir: &'static str, key: &str, size: u32, fill: bool) -> bool {
     match image::load_from_memory(bytes) {
         Ok(img) => {
             let img = if fill {
@@ -83,8 +168,9 @@ fn write_thumb(bytes: &[u8], out: &Path, color_file: &Path, size: u32, fill: boo
                 img
             };
             let rgb = img.to_rgb8();
-            if !color_file.exists() {
-                let _ = fs::write(color_file, dominant_color(&rgb));
+            if entry(dir, key).color.is_none() {
+                let c = dominant_color(&rgb);
+                mark(dir, key, |e| e.color = Some(c));
             }
             let tmp = out.with_extension("tmp");
             let ok = fs::File::create(&tmp)
@@ -102,11 +188,8 @@ fn write_thumb(bytes: &[u8], out: &Path, color_file: &Path, size: u32, fill: boo
     }
 }
 
-fn result(out: &Path, color_file: &Path) -> Cover {
-    Cover {
-        path: out.to_string_lossy().into_owned(),
-        color: fs::read_to_string(color_file).unwrap_or_else(|_| "#535353".into()),
-    }
+fn result(out: &Path, dir: &'static str, key: &str) -> Cover {
+    Cover { path: out.to_string_lossy().into_owned(), color: entry(dir, key).color.unwrap_or_else(|| "#535353".into()) }
 }
 
 /* ───────────── Deezer (no API key) ───────────── */
@@ -250,19 +333,16 @@ fn cover_for(path: &Path, size: u32, online: Option<OnlineCover>, shared: Option
     let _ = fs::create_dir_all(&dir);
     let shared = shared.map(|s| s.album);
     // Separate cache key, so covers taken from a shared folder before are looked up again
-    let name = format!("{}{}", path_hash(path), if shared.is_some() { "s" } else { "" });
-    let none = dir.join(format!("{name}.none"));
-    let nonet = dir.join(format!("{name}.nonet"));
+    let name = cover_key(path, shared.is_some());
     let out = dir.join(format!("{name}_{size}.jpg"));
-    let color_file = dir.join(format!("{name}.color"));
     if out.exists() {
-        return Some(result(&out, &color_file));
+        return Some(result(&out, "covers", &name));
     }
-
-    let mut bytes = if none.exists() { None } else { cover_source(path, shared.as_deref()) };
+    let known = entry("covers", &name);
+    let mut bytes = if known.none { None } else { cover_source(path, shared.as_deref()) };
     if bytes.is_none() {
-        let _ = fs::write(&none, b"");
-        if let Some(o) = online.filter(|_| !nonet.exists()) {
+        mark("covers", &name, |e| e.none = true);
+        if let Some(o) = online.filter(|_| !known.nonet) {
             match deezer_album_cover(&o.artist, &o.album) {
                 Some(b) => {
                     if o.save_to_folder {
@@ -274,20 +354,29 @@ fn cover_for(path: &Path, size: u32, online: Option<OnlineCover>, shared: Option
                             };
                             if !target.exists() {
                                 let _ = fs::write(target, &b);
-                                let _ = fs::remove_file(&none);
+                                mark("covers", &name, |e| e.none = false);
                             }
                         }
                     }
                     bytes = Some(b);
                 }
-                None => {
-                    let _ = fs::write(&nonet, b"");
-                }
+                None => mark("covers", &name, |e| e.nonet = true),
             }
         }
     }
     let bytes = bytes?;
-    write_thumb(&bytes, &out, &color_file, size, false).then(|| result(&out, &color_file))
+    write_thumb(&bytes, &out, "covers", &name, size, false).then(|| result(&out, "covers", &name))
+}
+
+/// Cache key of an album cover (the first track's path; shared folders get their own).
+fn cover_key(path: &Path, shared: bool) -> String {
+    format!("{}{}", path_hash(path), if shared { "s" } else { "" })
+}
+fn artist_key(name: &str) -> String {
+    path_hash(Path::new(&format!("artist:{}", name.to_lowercase())))
+}
+fn custom_key(file: &str) -> String {
+    format!("c{}", path_hash(Path::new(file)))
 }
 
 /// Full-size image for an album (to embed it): embedded, the folder's, or Deezer's.
@@ -329,23 +418,22 @@ pub async fn covers_status(albums: Vec<CoverCheck>) -> Vec<CoverStatus> {
 
 /// Thumbnail of an image the user chose in Wax (data/custom). Each choice is a new file,
 /// so its thumbnails never get mixed up with older ones.
-fn custom_thumb(file: &str, size: u32, dir: &str, fill: bool) -> Option<Cover> {
+fn custom_thumb(file: &str, size: u32, dir: &'static str, fill: bool) -> Option<Cover> {
     let src = Path::new(file);
     if !src.is_file() {
         return None;
     }
     let cache = data_dir().join(dir);
     let _ = fs::create_dir_all(&cache);
-    let key = format!("c{}", path_hash(src));
+    let key = custom_key(file);
     let out = cache.join(format!("{key}_{size}.jpg"));
-    let color_file = cache.join(format!("{key}.color"));
     if !out.exists() {
         let bytes = fs::read(src).ok()?;
-        if !write_thumb(&bytes, &out, &color_file, size, fill) {
+        if !write_thumb(&bytes, &out, dir, &key, size, fill) {
             return None;
         }
     }
-    Some(result(&out, &color_file))
+    Some(result(&out, dir, &key))
 }
 
 #[tauri::command]
@@ -393,29 +481,27 @@ pub async fn get_artist_image(name: String, dir: Option<String>, size: u32, onli
         }
         let cache = data_dir().join("artists");
         let _ = fs::create_dir_all(&cache);
-        let key = path_hash(Path::new(&format!("artist:{}", name.to_lowercase())));
+        let key = artist_key(&name);
         let out = cache.join(format!("{key}_{size}.jpg"));
-        let color_file = cache.join(format!("{key}.color"));
-        let none = cache.join(format!("{key}.none"));
-        let nonet = cache.join(format!("{key}.nonet"));
         if out.exists() {
-            return Some(result(&out, &color_file));
+            return Some(result(&out, "artists", &key));
         }
+        let known = entry("artists", &key);
         let mut bytes = None;
-        if !none.exists() {
+        if !known.none {
             bytes = dir.as_deref().and_then(|d| artist_folder_image(Path::new(d), &name));
             if bytes.is_none() {
-                let _ = fs::write(&none, b"");
+                mark("artists", &key, |e| e.none = true);
             }
         }
-        if bytes.is_none() && online && !nonet.exists() {
+        if bytes.is_none() && online && !known.nonet {
             bytes = deezer_artist_picture(&name);
             if bytes.is_none() {
-                let _ = fs::write(&nonet, b"");
+                mark("artists", &key, |e| e.nonet = true);
             }
         }
         let bytes = bytes?;
-        write_thumb(&bytes, &out, &color_file, size, true).then(|| result(&out, &color_file))
+        write_thumb(&bytes, &out, "artists", &key, size, true).then(|| result(&out, "artists", &key))
     })
     .await
     .ok()
@@ -559,24 +645,111 @@ pub async fn pick_image(app: tauri::AppHandle) -> Option<String> {
     .flatten()
 }
 
-/// Deletes the "not found" markers so images are looked up again.
+/// Forgets every "not found" mark so images are looked up again.
 #[tauri::command]
 pub fn clear_image_misses() {
-    for sub in ["covers", "artists"] {
-        if let Ok(rd) = fs::read_dir(data_dir().join(sub)) {
+    for dir in ["covers", "artists"] {
+        with_index(dir, true, |i| {
+            for e in i.values_mut() {
+                e.none = false;
+                e.nonet = false;
+            }
+            i.retain(|_, e| e.color.is_some());
+        });
+    }
+}
+
+#[derive(Deserialize)]
+pub struct AlbumRef {
+    path: String,
+    shared: bool,
+}
+
+#[derive(Serialize, Default)]
+pub struct Cleaned {
+    files: usize,
+    bytes: u64,
+}
+
+/// Deletes cached thumbnails of albums and artists that aren't in the library anymore, and
+/// images chosen by hand that were replaced. Only Wax's cache is touched, never your music folders.
+#[tauri::command]
+pub async fn clean_image_cache(albums: Vec<AlbumRef>, artists: Vec<String>, custom: Vec<String>) -> Cleaned {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Cleaned::default();
+        let mut keep_covers: HashSet<String> = albums.iter().map(|a| cover_key(Path::new(&a.path), a.shared)).collect();
+        let mut keep_artists: HashSet<String> = artists.iter().map(|n| artist_key(n)).collect();
+        for c in &custom {
+            keep_covers.insert(custom_key(c));
+            keep_artists.insert(custom_key(c));
+        }
+        let mut sweep = |dir: &'static str, keep: &HashSet<String>| {
+            with_index(dir, true, |i| i.retain(|k, _| keep.contains(k)));
+            let Ok(rd) = fs::read_dir(data_dir().join(dir)) else { return };
             for e in rd.flatten() {
                 let p = e.path();
-                if p.extension().is_some_and(|x| x == "nonet" || x == "none") {
-                    let _ = fs::remove_file(p);
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                if name.starts_with("index.json") {
+                    continue;
+                }
+                // "<key>_300.jpg" → <key>
+                let key = name.split(['_', '.']).next().unwrap_or("");
+                if !keep.contains(key) {
+                    out.bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
+                    if fs::remove_file(&p).is_ok() {
+                        out.files += 1;
+                    }
+                }
+            }
+        };
+        sweep("covers", &keep_covers);
+        sweep("artists", &keep_artists);
+        // Images chosen by hand that nothing uses anymore
+        let keep_custom: HashSet<PathBuf> = custom.iter().map(PathBuf::from).collect();
+        if let Ok(rd) = fs::read_dir(data_dir().join("custom")) {
+            for e in rd.flatten() {
+                if !keep_custom.contains(&e.path()) {
+                    out.bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
+                    if fs::remove_file(e.path()).is_ok() {
+                        out.files += 1;
+                    }
                 }
             }
         }
-    }
+        out
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Old marker files move into index.json, and cleaning keeps only what the library uses.
+    #[test]
+    fn cache_index_and_cleaning() {
+        let dir = data_dir().join("covers");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (cover_key(Path::new("C:/m/A/a.mp3"), false), cover_key(Path::new("C:/m/B/b.mp3"), true));
+        fs::write(dir.join(format!("{a}.color")), "#123456").unwrap();
+        fs::write(dir.join(format!("{a}.none")), "").unwrap();
+        fs::write(dir.join(format!("{a}_300.jpg")), "x").unwrap();
+        fs::write(dir.join(format!("{b}_300.jpg")), "xx").unwrap();
+        fs::write(dir.join(format!("{b}.nonet")), "").unwrap();
+        let e = entry("covers", &a);
+        assert_eq!(e.color.as_deref(), Some("#123456"));
+        assert!(e.none && entry("covers", &b).nonet);
+        let left: Vec<String> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert!(left.iter().all(|n| n.ends_with(".jpg") || n == "index.json"), "{left:?}");
+        // Only album A is still in the library
+        let r = tauri::async_runtime::block_on(clean_image_cache(vec![AlbumRef { path: "C:/m/A/a.mp3".into(), shared: false }], vec![], vec![]));
+        assert_eq!(r.files, 1);
+        assert!(dir.join(format!("{a}_300.jpg")).exists() && !dir.join(format!("{b}_300.jpg")).exists());
+        assert!(entry("covers", &b).color.is_none() && !entry("covers", &b).nonet);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn shared_folder_covers() {
         let dir = std::env::temp_dir().join("wax_shared_cover_test");

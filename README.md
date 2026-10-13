@@ -28,9 +28,14 @@ The classic 2015–2017 Spotify desktop look · for the files on your computer �
 - **Takes care of your library** — tags, covers, synced lyrics, duplicates, organizing files, CUE sheets, Last.fm.
 - **Yours, offline** — no accounts, no cloud, no telemetry. Your library stays in your folders; Wax keeps a few JSON files you own.
 
+<p align="center">
+  <img width="1280" alt="Wax — Browse: recently played and recently added albums" src="docs/screenshots/browse.webp" />
+</p>
+
 ## Contents
 
 - [Install](#install)
+- [See it in action](#see-it-in-action)
 - [Why Wax?](#why-wax)
 - [Features](#features)
 - [Your music folder](#your-music-folder)
@@ -99,6 +104,16 @@ Data lives under `~/.local/share/wax/`.
 **Updates** — Settings → About checks GitHub Releases (and once a day on its own) and installs the new version in the same place Wax is: the portable folder, the install folder, `Wax.app` or the AppImage. `.deb` / `.rpm` updates are handed to your system's installer.
 
 Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#running-locally).
+
+## See it in action
+
+<img width="1918" alt="Wax — Artist page with Popular songs from Last.fm" src="docs/screenshots/artist.webp" />
+
+*Artist page — the artist's photo, Popular songs ranked by Last.fm, Related Artists and About tabs, and every album below.*
+
+<img width="1919" alt="Wax — Full-screen Now Playing with synced lyrics" src="docs/screenshots/now-playing.webp" />
+
+*Full-screen Now Playing (F11) — big cover, a background tinted by the album art and synced lyrics that follow the song.*
 
 ## Why Wax?
 

@@ -1808,6 +1808,7 @@ VIEWS.settings = () => {
     ${setRow('Save downloaded covers as cover.jpg', "In each album's folder.", sw('saveCovers', false))}
     ${setRow('Artist photos', "Uses artist.jpg / folder.jpg from the artist's folder; if there isn't one, looks it up online.", sw('fetchArtistImages', true))}
     ${setRow('Search for images again', 'In case you added images or something changed.', `<button class="btn btn-ghost btn-sm" data-action="clear-images">Search again</button>`)}
+    ${setRow('Clean the image cache', "Deletes saved covers and photos of albums and artists that aren't in your library anymore, and images you replaced. Your music folders aren't touched. It also runs by itself once a week.", `<button class="btn btn-ghost btn-sm" data-action="clean-images">Clean</button>`)}
     ${setRow('Embed covers in the files', "For albums whose cover is only an image in the folder (or online). It's in the library check.", `<button class="btn btn-ghost btn-sm" data-go="health">Open</button>`)}
 
     <h3>Window</h3>

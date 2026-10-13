@@ -264,13 +264,7 @@ pub async fn scan_folders(app: AppHandle, folders: Vec<String>) -> Result<Vec<Tr
     tauri::async_runtime::spawn_blocking(move || {
         let tracks = scan(&folders, read_cache());
         // On rescan, local covers that didn't exist before are looked up again.
-        if let Ok(rd) = fs::read_dir(data_dir().join("covers")) {
-            for e in rd.flatten() {
-                if e.path().extension().is_some_and(|x| x == "none") {
-                    let _ = fs::remove_file(e.path());
-                }
-            }
-        }
+        crate::covers::forget_local_misses();
         save_cache(&tracks);
         tracks
     })

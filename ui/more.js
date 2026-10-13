@@ -725,11 +725,26 @@ setTimeout(() => {
   if (S.prefs.autoUpdate !== false && Date.now() - (S.prefs.updateCheckedAt || 0) > 20 * 3600 * 1000) checkUpdates(false);
 }, 8000);
 
+/* ───────────── Cleaning the image cache ───────────── */
+async function cleanImageCache(manual = false) {
+  // Never with an empty library (e.g. the music drive is unplugged): it would delete everything
+  if (!S.tracks.length) { if (manual) toast('Your library is empty: nothing is cleaned'); return; }
+  const albums = S.albums.map(a => ({ path: realPath(S.tracks[a.tracks[0]]), shared: !!a.shared }));
+  const artists = S.artists.map(a => a.name);
+  const custom = [...Object.values(S.prefs.coverOverrides || {}), ...Object.values(S.prefs.artistOverrides || {}), ...S.prefs.playlists.map(p => p.image)].filter(Boolean);
+  const r = await invoke('clean_image_cache', { albums, artists, custom }).catch(() => null);
+  if (!r) return;
+  S.prefs.cacheCleanedAt = Date.now(); savePrefs();
+  if (manual) toast(r.files ? `Removed ${plural(r.files, 'unused image', 'unused images')} (${(r.bytes / 1048576).toFixed(1)} MB)` : 'Nothing to clean: every saved image is in use', 4000);
+}
+setTimeout(() => { if (Date.now() - (S.prefs.cacheCleanedAt || 0) > 7 * 86400 * 1000) cleanImageCache(false); }, 60000);
+
 /* ───────────── Actions ───────────── */
 const extraActionBase = extraAction;
 extraAction = function (a, arg) {
   switch (a) {
     case 'pl-edit': editPlaylistDetails(arg); return;
+    case 'clean-images': cleanImageCache(true); return;
     case 'upd-check': checkUpdates(true); return;
     case 'upd-install': installUpdate(); return;
     case 'upd-notes': updateNotes(); return;

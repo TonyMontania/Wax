@@ -324,6 +324,7 @@ fn main() {
             covers::get_cover,
             covers::get_artist_image,
             covers::clear_image_misses,
+            covers::clean_image_cache,
             covers::covers_status,
             covers::image_candidates,
             covers::save_custom_image,
