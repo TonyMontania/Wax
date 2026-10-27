@@ -364,6 +364,7 @@ fn exe() -> String {
 }
 
 /// Runs a console tool without flashing a window.
+#[cfg(windows)]
 fn quiet(cmd: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
     let mut c = std::process::Command::new(cmd);
     c.args(args);
