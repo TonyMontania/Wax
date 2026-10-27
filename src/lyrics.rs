@@ -12,12 +12,11 @@ use serde::{Deserialize, Serialize};
 use crate::{data_dir, file_name, http};
 
 /* ───────────── Lyrics ─────────────
-   Lookup order:
-   1. `song.lrc` / `song.txt` next to the file (what LRCGET creates)
-   2. Lyrics embedded in the tags
-   3. Cache in data/lyrics
-   4. LRCLIB (https://lrclib.net), the same database LRCGET uses */
-
+Lookup order:
+1. `song.lrc` / `song.txt` next to the file (what LRCGET creates)
+2. Lyrics embedded in the tags
+3. Cache in data/lyrics
+4. LRCLIB (https://lrclib.net), the same database LRCGET uses */
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -55,13 +54,7 @@ fn is_synced(s: &str) -> bool {
 
 fn lyrics_from_text(text: String, source: &str) -> Lyrics {
     let synced = is_synced(&text);
-    Lyrics {
-        synced: synced.then(|| text.clone()),
-        plain: (!synced).then_some(text),
-        found: true,
-        source: source.into(),
-        ..Default::default()
-    }
+    Lyrics { synced: synced.then(|| text.clone()), plain: (!synced).then_some(text), found: true, source: source.into(), ..Default::default() }
 }
 
 fn local_lyrics(path: &Path) -> Option<Lyrics> {
@@ -72,14 +65,8 @@ fn local_lyrics(path: &Path) -> Option<Lyrics> {
             }
         }
     }
-    let file = Probe::open(path)
-        .map(|p| p.options(ParseOptions::new().read_cover_art(false)))
-        .and_then(|p| p.read())
-        .ok()?;
-    file.tags()
-        .iter()
-        .find_map(|t| non_empty(t.get_string(&ItemKey::Lyrics).map(str::to_string)))
-        .map(|s| lyrics_from_text(s, "File tags"))
+    let file = Probe::open(path).map(|p| p.options(ParseOptions::new().read_cover_art(false))).and_then(|p| p.read()).ok()?;
+    file.tags().iter().find_map(|t| non_empty(t.get_string(&ItemKey::Lyrics).map(str::to_string))).map(|s| lyrics_from_text(s, "File tags"))
 }
 
 fn lrclib(title: &str, artist: &str, album: &str, duration: f64) -> Result<Option<LrcLibTrack>, String> {
@@ -110,27 +97,16 @@ fn lrclib(title: &str, artist: &str, album: &str, duration: f64) -> Result<Optio
         .read_json()
         .map_err(|e| e.to_string())?;
     let diff = |t: &LrcLibTrack| t.duration.map(|d| (d - duration).abs()).unwrap_or(5.0);
-    Ok(list
-        .into_iter()
-        .filter(|t| duration <= 0.0 || diff(t) <= 8.0)
-        .min_by(|a, b| {
-            let ka = (a.synced_lyrics.is_none() as u8, diff(a));
-            let kb = (b.synced_lyrics.is_none() as u8, diff(b));
-            ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
-        }))
+    Ok(list.into_iter().filter(|t| duration <= 0.0 || diff(t) <= 8.0).min_by(|a, b| {
+        let ka = (a.synced_lyrics.is_none() as u8, diff(a));
+        let kb = (b.synced_lyrics.is_none() as u8, diff(b));
+        ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+    }))
 }
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn get_lyrics(
-    path: String,
-    title: String,
-    artist: String,
-    album: String,
-    duration: f64,
-    online: bool,
-    force: bool,
-) -> Lyrics {
+pub async fn get_lyrics(path: String, title: String, artist: String, album: String, duration: f64, online: bool, force: bool) -> Lyrics {
     tauri::async_runtime::spawn_blocking(move || {
         let p = Path::new(&path);
         if let Some(l) = local_lyrics(p) {
@@ -154,14 +130,7 @@ pub async fn get_lyrics(
                 let synced = non_empty(t.synced_lyrics);
                 let plain = non_empty(t.plain_lyrics);
                 let instrumental = t.instrumental.unwrap_or(false);
-                Lyrics {
-                    found: synced.is_some() || plain.is_some() || instrumental,
-                    synced,
-                    plain,
-                    instrumental,
-                    source: "LRCLIB".into(),
-                    ..Default::default()
-                }
+                Lyrics { found: synced.is_some() || plain.is_some() || instrumental, synced, plain, instrumental, source: "LRCLIB".into(), ..Default::default() }
             }
             Ok(None) => Lyrics { source: "LRCLIB".into(), ..Default::default() },
             Err(e) => return Lyrics { source: "LRCLIB".into(), error: Some(e), ..Default::default() },

@@ -2,3 +2,9 @@
 *.png binary
 *.ico binary
 *.icns binary
+*.webp binary
+*.jpg binary
+*.flac binary
+*.mp3 binary
+*.m4a binary
+*.opus binary

@@ -24,6 +24,7 @@ mod discover;
 mod library;
 mod lyrics;
 mod online;
+mod party;
 mod player;
 mod updater;
 
@@ -39,6 +40,12 @@ use tauri_plugin_dialog::DialogExt;
 
 pub const AUDIO_EXT: &[&str] = &["mp3", "flac", "ogg", "oga", "opus", "wav", "aif", "aiff", "m4a", "aac", "mp4", "webm"];
 pub const IMAGE_EXT: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp", "gif"];
+/// Where the tests' audio files are (tests/fixtures, or WAX_TEST_AUDIO)
+#[cfg(test)]
+pub fn test_audio_dir() -> String {
+    std::env::var("WAX_TEST_AUDIO").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures").to_string())
+}
+
 pub const USER_AGENT: &str = concat!("Wax/", env!("CARGO_PKG_VERSION"), " ( local music player )");
 
 /// How this copy of Wax was installed (decides where data goes and how it updates itself).
@@ -81,7 +88,11 @@ pub fn install_kind() -> Install {
             return Install::Portable;
         }
         if cfg!(windows) {
-            if dir.join("uninstall.exe").exists() { Install::WindowsInstaller } else { Install::Portable }
+            if dir.join("uninstall.exe").exists() {
+                Install::WindowsInstaller
+            } else {
+                Install::Portable
+            }
         } else if cfg!(target_os = "macos") {
             Install::MacApp
         } else if std::env::var_os("APPIMAGE").is_some() {
@@ -135,10 +146,7 @@ pub fn open_folder(dir: &Path) {
 }
 
 pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
-        .unwrap_or(false)
+    path.extension().and_then(|e| e.to_str()).map(|e| exts.contains(&e.to_ascii_lowercase().as_str())).unwrap_or(false)
 }
 
 pub fn clean(s: Option<impl AsRef<str>>) -> Option<String> {
@@ -170,15 +178,7 @@ pub fn path_hash(path: &Path) -> String {
 /// Shared HTTP client (with its own User-Agent and a timeout).
 pub fn http() -> ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-    AGENT
-        .get_or_init(|| {
-            ureq::Agent::config_builder()
-                .timeout_global(Some(Duration::from_secs(15)))
-                .user_agent(USER_AGENT)
-                .build()
-                .into()
-        })
-        .clone()
+    AGENT.get_or_init(|| ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(15))).user_agent(USER_AGENT).build().into()).clone()
 }
 
 pub fn open_url(url: &str) {
@@ -340,6 +340,7 @@ fn main() {
             covers::get_cover,
             covers::get_artist_image,
             covers::clear_image_misses,
+            covers::forget_artist_photos,
             covers::clean_image_cache,
             covers::covers_status,
             covers::image_candidates,
@@ -394,6 +395,20 @@ fn main() {
             desktop::set_autostart,
             desktop::create_shortcut,
             desktop::set_fullscreen,
+            party::party_host,
+            party::party_update,
+            party::party_catalog,
+            party::party_stop,
+            party::party_join,
+            party::party_leave,
+            party::party_poll,
+            party::party_clock,
+            party::party_fetch,
+            party::party_progress,
+            party::party_cover,
+            party::party_search,
+            party::party_request,
+            party::party_share,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Wax");

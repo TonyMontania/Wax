@@ -11,8 +11,8 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
-use lofty::probe::Probe;
 use lofty::picture::{MimeType, Picture, PictureType};
+use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagExt, TagItem, TagType};
 use notify::{RecursiveMode, Watcher as _};
 use rayon::prelude::*;
@@ -65,19 +65,14 @@ pub struct Track {
 fn file_meta(path: &Path) -> (u64, u64) {
     fs::metadata(path)
         .map(|m| {
-            let mt = m
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+            let mt = m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
             (mt, m.len())
         })
         .unwrap_or((0, 0))
 }
 
 fn parse_db(s: &str) -> Option<f32> {
-    s.trim().split_whitespace().next()?.replace(',', ".").parse().ok()
+    s.split_whitespace().next()?.replace(',', ".").parse().ok()
 }
 
 pub fn read_track(path: &Path) -> Track {
@@ -100,9 +95,7 @@ pub fn read_track(path: &Path) -> Track {
         cue: None,
     };
 
-    let parsed = Probe::open(path)
-        .map(|p| p.options(ParseOptions::new().read_cover_art(false)))
-        .and_then(|p| p.read());
+    let parsed = Probe::open(path).map(|p| p.options(ParseOptions::new().read_cover_art(false))).and_then(|p| p.read());
     if let Ok(file) = parsed {
         t.duration = file.properties().duration().as_secs_f64();
         if let Some(tag) = file.primary_tag().or_else(|| file.first_tag()) {
@@ -125,7 +118,13 @@ pub fn read_track(path: &Path) -> Track {
             if let Some(first) = multi.first() {
                 t.artist = if multi.len() > 1 { multi.join(", ") } else { first.clone() };
             }
-            t.artists = if explicit.len() > 1 { explicit } else if multi.len() > 1 { multi } else { Vec::new() };
+            t.artists = if explicit.len() > 1 {
+                explicit
+            } else if multi.len() > 1 {
+                multi
+            } else {
+                Vec::new()
+            };
             if t.artist.is_empty() && !t.artists.is_empty() {
                 t.artist = t.artists.join(", ");
             }
@@ -137,11 +136,7 @@ pub fn read_track(path: &Path) -> Track {
             }
             t.track_no = tag.track().unwrap_or(0);
             t.disc_no = tag.disk().unwrap_or(0);
-            t.year = tag
-                .get_string(&ItemKey::Year)
-                .or_else(|| tag.get_string(&ItemKey::RecordingDate))
-                .and_then(|s| s.trim().get(..4).and_then(|y| y.parse().ok()))
-                .unwrap_or(0);
+            t.year = tag.get_string(&ItemKey::Year).or_else(|| tag.get_string(&ItemKey::RecordingDate)).and_then(|s| s.trim().get(..4).and_then(|y| y.parse().ok())).unwrap_or(0);
             // Genres: multiple values or separated by ";" / ","
             let mut genres: Vec<String> = Vec::new();
             for g in values(&ItemKey::Genre) {
@@ -168,20 +163,13 @@ pub fn read_track(path: &Path) -> Track {
         t.artist = if t.album_artist.is_empty() { "Unknown Artist".into() } else { t.album_artist.clone() };
     }
     if t.album.is_empty() {
-        t.album = path
-            .parent()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Unknown Album".into());
+        t.album = path.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Unknown Album".into());
     }
     t
 }
 
 fn read_cache() -> Vec<Track> {
-    fs::read_to_string(data_dir().join("library.json"))
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    fs::read_to_string(data_dir().join("library.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 /// Incremental scan: files with the same date and size aren't read again.
@@ -338,43 +326,50 @@ fn with_tag(path: &str, f: impl FnOnce(&mut Tag) -> Result<(), String>) -> Resul
 
 fn apply_update(u: &TagUpdate) -> Result<Track, String> {
     with_tag(&u.path, |tag| {
-
-    if let Some(v) = &u.title {
-        set_text(tag, ItemKey::TrackTitle, v);
-    }
-    match (&u.artists, &u.artist) {
-        (Some(list), display) if list.iter().filter(|s| !s.trim().is_empty()).count() > 1 => {
-            let display = display.clone().unwrap_or_else(|| list.join(", "));
-            set_text(tag, ItemKey::TrackArtist, &display);
-            set_multi(tag, ItemKey::TrackArtists, list);
+        if let Some(v) = &u.title {
+            set_text(tag, ItemKey::TrackTitle, v);
         }
-        (_, Some(a)) => {
-            set_text(tag, ItemKey::TrackArtist, a);
-            tag.remove_key(&ItemKey::TrackArtists);
+        match (&u.artists, &u.artist) {
+            (Some(list), display) if list.iter().filter(|s| !s.trim().is_empty()).count() > 1 => {
+                let display = display.clone().unwrap_or_else(|| list.join(", "));
+                set_text(tag, ItemKey::TrackArtist, &display);
+                set_multi(tag, ItemKey::TrackArtists, list);
+            }
+            (_, Some(a)) => {
+                set_text(tag, ItemKey::TrackArtist, a);
+                tag.remove_key(&ItemKey::TrackArtists);
+            }
+            _ => {}
         }
-        _ => {}
-    }
-    if let Some(v) = &u.album {
-        set_text(tag, ItemKey::AlbumTitle, v);
-    }
-    if let Some(v) = &u.album_artist {
-        set_text(tag, ItemKey::AlbumArtist, v);
-    }
-    if let Some(n) = u.track_no {
-        if n == 0 { tag.remove_key(&ItemKey::TrackNumber) } else { tag.set_track(n) }
-    }
-    if let Some(n) = u.disc_no {
-        if n == 0 { tag.remove_key(&ItemKey::DiscNumber) } else { tag.set_disk(n) }
-    }
-    if let Some(y) = u.year {
-        let s = if y == 0 { String::new() } else { y.to_string() };
-        set_text(tag, ItemKey::Year, &s);
-        set_text(tag, ItemKey::RecordingDate, &s);
-    }
-    if let Some(g) = &u.genres {
-        set_multi(tag, ItemKey::Genre, g);
-    }
-    Ok(())
+        if let Some(v) = &u.album {
+            set_text(tag, ItemKey::AlbumTitle, v);
+        }
+        if let Some(v) = &u.album_artist {
+            set_text(tag, ItemKey::AlbumArtist, v);
+        }
+        if let Some(n) = u.track_no {
+            if n == 0 {
+                tag.remove_key(&ItemKey::TrackNumber)
+            } else {
+                tag.set_track(n)
+            }
+        }
+        if let Some(n) = u.disc_no {
+            if n == 0 {
+                tag.remove_key(&ItemKey::DiscNumber)
+            } else {
+                tag.set_disk(n)
+            }
+        }
+        if let Some(y) = u.year {
+            let s = if y == 0 { String::new() } else { y.to_string() };
+            set_text(tag, ItemKey::Year, &s);
+            set_text(tag, ItemKey::RecordingDate, &s);
+        }
+        if let Some(g) = &u.genres {
+            set_multi(tag, ItemKey::Genre, g);
+        }
+        Ok(())
     })
 }
 
@@ -516,7 +511,7 @@ pub async fn embed_covers(app: AppHandle, jobs: Vec<CoverJob>) -> Result<TagResu
             let Some(first) = job.paths.first() else { continue };
             let bytes = match &job.image {
                 Some(img) => fs::read(img).ok(),
-                None => crate::covers::album_image(Path::new(first), job.shared.then_some(job.album.as_str()), job.online.then(|| (job.artist.as_str(), job.album.as_str()))),
+                None => crate::covers::album_image(Path::new(first), job.shared.then_some(job.album.as_str()), job.online.then_some((job.artist.as_str(), job.album.as_str()))),
             };
             let Some((data, mime)) = bytes.and_then(embeddable) else {
                 errors.push(format!("{}: no cover found", job.album));
@@ -613,7 +608,7 @@ pub struct CopyItem {
 }
 
 /// Converts a song to MP3 (CBR, LAME), keeping its tags and cover.
-fn encode_mp3(from: &str, to: &Path, kbps: u32) -> Result<(), String> {
+pub(crate) fn encode_mp3(from: &str, to: &Path, kbps: u32) -> Result<(), String> {
     use mp3lame_encoder::{max_required_buffer_size, Bitrate, Builder, FlushGap, InterleavedPcm, Quality};
     let (frames, rate) = crate::audio::decode_for_mp3(from)?;
     let mut b = Builder::new().ok_or("Couldn't start the MP3 encoder")?;
@@ -692,7 +687,11 @@ pub async fn copy_files(app: AppHandle, items: Vec<CopyItem>, m3u: Option<(Strin
                 // Converted: skipped if an MP3 newer than the original is already there
                 Some(kbps) => {
                     let newer = fs::metadata(to).and_then(|m| m.modified()).ok().zip(fs::metadata(from).and_then(|m| m.modified()).ok()).is_some_and(|(a, b)| a >= b);
-                    if newer { Ok(false) } else { encode_mp3(&it.from, to, kbps).map(|_| true) }
+                    if newer {
+                        Ok(false)
+                    } else {
+                        encode_mp3(&it.from, to, kbps).map(|_| true)
+                    }
                 }
                 None => {
                     let same = fs::metadata(to).ok().zip(fs::metadata(from).ok()).is_some_and(|(a, b)| a.len() == b.len());
@@ -778,9 +777,7 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 fn dir_has_audio(dir: &Path) -> bool {
-    fs::read_dir(dir)
-        .map(|rd| rd.flatten().any(|e| e.path().is_dir() || has_ext(&e.path(), AUDIO_EXT)))
-        .unwrap_or(true)
+    fs::read_dir(dir).map(|rd| rd.flatten().any(|e| e.path().is_dir() || has_ext(&e.path(), AUDIO_EXT))).unwrap_or(true)
 }
 
 #[tauri::command]
@@ -858,13 +855,7 @@ pub struct M3uEntry {
 pub async fn export_m3u(app: AppHandle, name: String, entries: Vec<M3uEntry>) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let safe: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
-        let Some(file) = app
-            .dialog()
-            .file()
-            .set_title("Export playlist")
-            .set_file_name(format!("{safe}.m3u8"))
-            .add_filter("Playlist M3U", &["m3u8", "m3u"])
-            .blocking_save_file()
+        let Some(file) = app.dialog().file().set_title("Export playlist").set_file_name(format!("{safe}.m3u8")).add_filter("Playlist M3U", &["m3u8", "m3u"]).blocking_save_file()
         else {
             return Ok(None);
         };
@@ -908,13 +899,7 @@ fn percent_decode(s: &str) -> String {
 #[tauri::command]
 pub async fn import_m3u(app: AppHandle) -> Result<Option<M3uImport>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(file) = app
-            .dialog()
-            .file()
-            .set_title("Import playlist")
-            .add_filter("Playlist M3U", &["m3u8", "m3u"])
-            .blocking_pick_file()
-        else {
+        let Some(file) = app.dialog().file().set_title("Import playlist").add_filter("Playlist M3U", &["m3u8", "m3u"]).blocking_pick_file() else {
             return Ok(None);
         };
         let path = file.into_path().map_err(|e| e.to_string())?;
@@ -935,9 +920,7 @@ pub async fn import_m3u(app: AppHandle) -> Result<Option<M3uImport>, String> {
             let raw = if let Some(rest) = line.strip_prefix("file:///") { percent_decode(rest) } else { line.to_string() };
             let p = PathBuf::from(raw.replace('/', "\\"));
             let full = if p.is_absolute() { p } else { base.join(p) };
-            let full = fs::canonicalize(&full)
-                .map(|c| c.to_string_lossy().trim_start_matches(r"\\?\").to_string())
-                .unwrap_or_else(|_| full.to_string_lossy().into_owned());
+            let full = fs::canonicalize(&full).map(|c| c.to_string_lossy().trim_start_matches(r"\\?\").to_string()).unwrap_or_else(|_| full.to_string_lossy().into_owned());
             paths.push(full);
         }
         Ok(Some(M3uImport { name, paths }))
@@ -964,22 +947,14 @@ fn history_file() -> PathBuf {
 
 #[tauri::command]
 pub fn append_history(listen: Listen) -> Result<(), String> {
-    let mut f = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(history_file())
-        .map_err(|e| e.to_string())?;
+    let mut f = fs::OpenOptions::new().create(true).append(true).open(history_file()).map_err(|e| e.to_string())?;
     writeln!(f, "{}", serde_json::to_string(&listen).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
 /// Adds many listens at once (history imported from Last.fm).
 #[tauri::command]
 pub fn append_history_bulk(listens: Vec<Listen>) -> Result<(), String> {
-    let mut f = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(history_file())
-        .map_err(|e| e.to_string())?;
+    let mut f = fs::OpenOptions::new().create(true).append(true).open(history_file()).map_err(|e| e.to_string())?;
     let mut out = String::new();
     for l in &listens {
         out.push_str(&serde_json::to_string(l).map_err(|e| e.to_string())?);
@@ -990,15 +965,9 @@ pub fn append_history_bulk(listens: Vec<Listen>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn load_history() -> Vec<Listen> {
-    tauri::async_runtime::spawn_blocking(|| {
-        fs::read_to_string(history_file())
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|l| serde_json::from_str(l).ok())
-            .collect()
-    })
-    .await
-    .unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(|| fs::read_to_string(history_file()).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
+        .await
+        .unwrap_or_default()
 }
 
 fn rewrite_history(moves: &HashMap<String, String>) {
@@ -1065,7 +1034,7 @@ mod tests {
     use super::*;
     #[test]
     fn converts_to_mp3() {
-        let Ok(dir) = std::env::var("WAX_TEST_AUDIO") else { return };
+        let dir = crate::test_audio_dir();
         let out = std::env::temp_dir().join("wax_convert_test.mp3");
         let _ = fs::remove_file(&out);
         encode_mp3(&format!("{dir}/a.flac"), &out, 192).unwrap();

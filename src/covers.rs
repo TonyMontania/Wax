@@ -177,10 +177,7 @@ fn write_thumb(bytes: &[u8], out: &Path, dir: &'static str, key: &str, size: u32
                 mark(dir, key, |e| e.color = Some(c));
             }
             let tmp = out.with_extension("tmp");
-            let ok = fs::File::create(&tmp)
-                .ok()
-                .map(|f| JpegEncoder::new_with_quality(BufWriter::new(f), 86).encode_image(&rgb).is_ok())
-                .unwrap_or(false);
+            let ok = fs::File::create(&tmp).ok().map(|f| JpegEncoder::new_with_quality(BufWriter::new(f), 86).encode_image(&rgb).is_ok()).unwrap_or(false);
             if !ok || fs::rename(&tmp, out).is_err() {
                 let _ = fs::remove_file(&tmp);
                 return false;
@@ -212,12 +209,6 @@ struct DzAlbum {
 struct DzName {
     name: String,
 }
-#[derive(Deserialize)]
-struct DzArtist {
-    name: String,
-    picture_xl: Option<String>,
-}
-
 fn simple(s: &str) -> String {
     s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
 }
@@ -233,13 +224,8 @@ fn deezer_album_cover(artist: &str, album: &str) -> Option<Vec<u8>> {
     // so a plain "artist album" search is tried next (results are still validated).
     let queries = [format!("artist:\"{artist}\" album:\"{album}\""), format!("{artist} {album}")];
     for q in &queries {
-        let Some(list) = http()
-            .get("https://api.deezer.com/search/album")
-            .query("q", q)
-            .query("limit", "15")
-            .call()
-            .ok()
-            .and_then(|mut r| r.body_mut().read_json::<DzList<DzAlbum>>().ok())
+        let Some(list) =
+            http().get("https://api.deezer.com/search/album").query("q", q).query("limit", "15").call().ok().and_then(|mut r| r.body_mut().read_json::<DzList<DzAlbum>>().ok())
         else {
             continue;
         };
@@ -255,20 +241,10 @@ fn deezer_album_cover(artist: &str, album: &str) -> Option<Vec<u8>> {
     None
 }
 
-fn deezer_artist_picture(name: &str) -> Option<Vec<u8>> {
-    let list: DzList<DzArtist> = http()
-        .get("https://api.deezer.com/search/artist")
-        .query("q", name)
-        .query("limit", "5")
-        .call()
-        .ok()?
-        .body_mut()
-        .read_json()
-        .ok()?;
-    let s = simple(name);
-    let best = list.data.iter().find(|a| simple(&a.name) == s)?;
-    let url = best.picture_xl.as_deref().filter(|u| !u.contains("/artist//"))?;
-    download(url)
+/// The photo of *your* artist on Deezer (see discover::deezer_artist): never a namesake's
+fn deezer_artist_picture(name: &str, titles: &[String]) -> Option<Vec<u8>> {
+    let a = crate::discover::deezer_artist(name, titles).ok()??;
+    download(Some(a.picture.as_str()).filter(|u| !u.is_empty())?)
 }
 
 /* ───────────── Album covers ───────────── */
@@ -280,22 +256,13 @@ fn cover_source(path: &Path, shared: Option<&str>) -> Option<Vec<u8>> {
     if let Ok(file) = lofty::read_from_path(path) {
         for tag in file.tags() {
             let pics = tag.pictures();
-            if let Some(pic) = pics
-                .iter()
-                .find(|p| p.pic_type() == PictureType::CoverFront)
-                .or_else(|| pics.first())
-            {
+            if let Some(pic) = pics.iter().find(|p| p.pic_type() == PictureType::CoverFront).or_else(|| pics.first()) {
                 return Some(pic.data().to_vec());
             }
         }
     }
     let parent = path.parent()?;
-    let mut imgs: Vec<PathBuf> = fs::read_dir(parent)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_file() && has_ext(p, IMAGE_EXT))
-        .collect();
+    let mut imgs: Vec<PathBuf> = fs::read_dir(parent).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file() && has_ext(p, IMAGE_EXT)).collect();
     if let Some(album) = shared {
         let stem = path.file_stem().map(|s| simple(&s.to_string_lossy())).unwrap_or_default();
         let album = simple(album);
@@ -309,10 +276,7 @@ fn cover_source(path: &Path, shared: Option<&str>) -> Option<Vec<u8>> {
     }
     let score = |p: &PathBuf| {
         let n = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
-        ["cover", "folder", "front", "album", "portada"]
-            .iter()
-            .position(|k| n.contains(k))
-            .unwrap_or(99)
+        ["cover", "folder", "front", "album", "portada"].iter().position(|k| n.contains(k)).unwrap_or(99)
     };
     imgs.sort_by_key(score);
     fs::read(imgs.first()?).ok()
@@ -442,30 +406,21 @@ pub async fn get_cover(path: String, size: u32, online: Option<OnlineCover>, sha
 /* ───────────── Artist photos ───────────── */
 
 fn artist_folder_image(dir: &Path, name: &str) -> Option<Vec<u8>> {
-    let imgs: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_file() && has_ext(p, IMAGE_EXT))
-        .collect();
+    let imgs: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file() && has_ext(p, IMAGE_EXT)).collect();
     let lname = name.to_lowercase();
     let score = |p: &PathBuf| {
         let n = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
         if n == lname {
             return 0;
         }
-        ["artist", "artista", "band", "photo", "foto", "folder", "cover"]
-            .iter()
-            .position(|k| n.contains(k))
-            .map(|i| i + 1)
-            .unwrap_or(99)
+        ["artist", "artista", "band", "photo", "foto", "folder", "cover"].iter().position(|k| n.contains(k)).map(|i| i + 1).unwrap_or(99)
     };
     let best = imgs.iter().min_by_key(|p| score(p))?;
     fs::read(best).ok()
 }
 
 #[tauri::command]
-pub async fn get_artist_image(name: String, dir: Option<String>, size: u32, online: bool) -> Option<Cover> {
+pub async fn get_artist_image(name: String, dir: Option<String>, size: u32, online: bool, titles: Option<Vec<String>>) -> Option<Cover> {
     let size = size.clamp(64, 1200);
     tauri::async_runtime::spawn_blocking(move || {
         let key = file_name(&name);
@@ -482,7 +437,7 @@ pub async fn get_artist_image(name: String, dir: Option<String>, size: u32, onli
             }
         }
         if bytes.is_none() && online && !known.nonet {
-            bytes = deezer_artist_picture(&name);
+            bytes = deezer_artist_picture(&name, &titles.unwrap_or_default());
             if bytes.is_none() {
                 mark("artists", &key, |e| e.nonet = true);
             }
@@ -516,6 +471,8 @@ struct DzAlbumFull {
 }
 #[derive(Deserialize)]
 struct DzArtistFull {
+    #[serde(default)]
+    id: u64,
     name: String,
     picture_medium: Option<String>,
     picture_xl: Option<String>,
@@ -525,9 +482,9 @@ struct DzArtistFull {
 
 /// Images to choose from on Deezer: album covers (`kind = "album"`) or artist photos.
 #[tauri::command]
-pub async fn image_candidates(kind: String, artist: String, album: String) -> Result<Vec<Candidate>, String> {
+pub async fn image_candidates(kind: String, artist: String, album: String, titles: Option<Vec<String>>) -> Result<Vec<Candidate>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let empty = |u: &Option<String>| u.as_deref().map_or(true, |u| u.contains("//images") || u.ends_with("//"));
+        let empty = |u: &Option<String>| u.as_deref().is_none_or(|u| u.contains("//images") || u.ends_with("//"));
         if kind == "album" {
             let mut out: Vec<Candidate> = Vec::new();
             for q in [format!("artist:\"{artist}\" album:\"{album}\""), format!("{artist} {album}"), album.clone()] {
@@ -552,21 +509,31 @@ pub async fn image_candidates(kind: String, artist: String, album: String) -> Re
             }
             Ok(out)
         } else {
+            // Only artists with exactly that name; yours (its music matches your library) first
             let list: DzList<DzArtistFull> = http()
                 .get("https://api.deezer.com/search/artist")
                 .query("q", &artist)
-                .query("limit", "12")
+                .query("limit", "25")
                 .call()
                 .map_err(|e| format!("Deezer: {e}"))?
                 .body_mut()
                 .read_json()
                 .map_err(|e| e.to_string())?;
-            Ok(list
+            let yours = crate::discover::deezer_artist(&artist, &titles.unwrap_or_default()).ok().flatten();
+            let want = simple(&artist);
+            let mut out: Vec<(bool, Candidate)> = list
                 .data
                 .into_iter()
+                .filter(|a| simple(&a.name) == want)
                 .filter(|a| !empty(&a.picture_xl) && !a.picture_xl.as_deref().unwrap_or("").contains("/artist//"))
-                .map(|a| Candidate { title: a.name, sub: format!("{} fans", a.nb_fan), thumb: a.picture_medium.unwrap_or_default(), url: a.picture_xl.unwrap_or_default() })
-                .collect())
+                .map(|a| {
+                    let mine = yours.as_ref().is_some_and(|y| y.id == a.id);
+                    let sub = if mine { format!("Your artist · {} fans", a.nb_fan) } else { format!("Another artist with this name · {} fans", a.nb_fan) };
+                    (mine, Candidate { title: a.name, sub, thumb: a.picture_medium.unwrap_or_default(), url: a.picture_xl.unwrap_or_default() })
+                })
+                .collect();
+            out.sort_by_key(|(mine, _)| !*mine);
+            Ok(out.into_iter().map(|(_, c)| c).collect())
         }
     })
     .await
@@ -593,7 +560,13 @@ fn save_jpeg(img: &image::DynamicImage, out: &Path, quality: u8) -> Result<(), S
 fn replace_thumbs(dir: &'static str, key: &str, img: &image::DynamicImage) -> Result<(), String> {
     let fill = dir == "artists";
     for size in [300u32, 640] {
-        let t = if fill { img.resize_to_fill(size, size, FilterType::Triangle) } else if img.width().max(img.height()) > size { img.resize(size, size, FilterType::Triangle) } else { img.clone() };
+        let t = if fill {
+            img.resize_to_fill(size, size, FilterType::Triangle)
+        } else if img.width().max(img.height()) > size {
+            img.resize(size, size, FilterType::Triangle)
+        } else {
+            img.clone()
+        };
         save_jpeg(&t, &thumb_path(dir, key, size), 86)?;
     }
     // other sizes from before go away
@@ -694,6 +667,23 @@ pub async fn pick_image(app: tauri::AppHandle) -> Option<String> {
 }
 
 /// Forgets every "not found" mark so images are looked up again.
+/// Artist photos fetched before Wax told namesakes apart are fetched again (your own picks stay)
+#[tauri::command]
+pub fn forget_artist_photos() {
+    let dir = data_dir().join("artists");
+    let custom: HashSet<String> = with_index("artists", true, |i| {
+        i.retain(|_, e| e.custom);
+        i.keys().cloned().collect()
+    });
+    for f in fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let p = f.path();
+        let file = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+        if file.ends_with(".jpg") && !custom.contains(&key_of(&file)) {
+            let _ = fs::remove_file(&p);
+        }
+    }
+}
+
 #[tauri::command]
 pub fn clear_image_misses() {
     for dir in ["covers", "artists"] {
@@ -914,8 +904,8 @@ mod tests {
             fs::write(dir.join(f), b).unwrap();
         }
         let a = dir.join("Song A.mp3");
-        assert_eq!(cover_source(&a, None).as_deref(), Some(&b"generic"[..]));    // album folder: cover.jpg
-        assert_eq!(cover_source(&a, Some("Song A")), None);                      // shared: cover.jpg ignored
+        assert_eq!(cover_source(&a, None).as_deref(), Some(&b"generic"[..])); // album folder: cover.jpg
+        assert_eq!(cover_source(&a, Some("Song A")), None); // shared: cover.jpg ignored
         assert_eq!(cover_source(&a, Some("Album C")).as_deref(), Some(&b"c-art"[..]));
         assert_eq!(cover_source(&dir.join("Song B.mp3"), Some("Song B")).as_deref(), Some(&b"b-art"[..]));
         let _ = fs::remove_dir_all(&dir);
@@ -925,9 +915,9 @@ mod tests {
         if std::env::var("WAX_NET").is_err() {
             return;
         }
-        let a = deezer_artist_picture("Radiohead").map(|b| b.len());
+        let a = deezer_artist_picture("Radiohead", &["OK Computer".into(), "Kid A".into()]).map(|b| b.len());
         let c = deezer_album_cover("Daft Punk", "Discovery").map(|b| b.len());
-        let none = deezer_artist_picture("zzqx artist that does not exist 123").map(|b| b.len());
+        let none = deezer_artist_picture("zzqx artist that does not exist 123", &["x".into()]).map(|b| b.len());
         println!("Radiohead photo: {a:?} bytes · Discovery cover: {c:?} bytes · missing artist: {none:?}");
         assert!(a.unwrap_or(0) > 5000 && c.unwrap_or(0) > 5000 && none.is_none());
     }

@@ -23,11 +23,7 @@ use crate::{data_dir, file_name, http};
 fn cached<T: Serialize + for<'de> Deserialize<'de>>(kind: &str, key: &str, days: u64, fetch: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let dir = data_dir().join("cache").join(kind);
     let file = dir.join(format!("{}.json", file_name(key)));
-    let fresh = fs::metadata(&file)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.elapsed().ok())
-        .is_some_and(|age| age < Duration::from_secs(days * 86400));
+    let fresh = fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < Duration::from_secs(days * 86400));
     if fresh {
         if let Some(v) = fs::read_to_string(&file).ok().and_then(|s| serde_json::from_str(&s).ok()) {
             return Ok(v);
@@ -41,6 +37,82 @@ fn cached<T: Serialize + for<'de> Deserialize<'de>>(kind: &str, key: &str, days:
 
 fn simple(s: &str) -> String {
     s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
+/* ───────────── Which Deezer artist is yours ───────────── */
+
+/// A title without "(Deluxe Edition)", "[Remastered 2011]", " - Live", "feat." and the like
+fn bare_title(s: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0;
+    for c in s.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = (depth - 1).max(0),
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    let out = out.split(" - ").next().unwrap_or("").to_string();
+    let out = out.split(" feat").next().unwrap_or("").to_string();
+    simple(&out)
+}
+
+fn dz_get(url: &str, limit: &str) -> Result<Value, String> {
+    let v: Value = http().get(url).query("limit", limit).call().map_err(|e| format!("Deezer: {e}"))?.body_mut().read_json().map_err(|e| e.to_string())?;
+    if let Some(e) = v.get("error") {
+        return Err(format!("Deezer: {}", e["message"].as_str().unwrap_or("error")));
+    }
+    Ok(v)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DzArtist {
+    pub id: u64,
+    pub picture: String,
+    /// How many of your album and song titles this artist has
+    pub matches: usize,
+}
+
+/// Several artists share a name (Ghost the band, Ghost the rapper…). The one that's yours is the
+/// one whose albums and songs match the ones in your library; if none match, none is used rather
+/// than a stranger. `titles`: your album and song titles of that artist.
+pub fn deezer_artist(name: &str, titles: &[String]) -> Result<Option<DzArtist>, String> {
+    let mine: std::collections::HashSet<String> = titles.iter().map(|t| bare_title(t)).filter(|t| t.len() > 1).collect();
+    let key = format!("{name} - {}", mine.len());
+    cached("deezer artists", &key, 14, || {
+        let v = http()
+            .get("https://api.deezer.com/search/artist")
+            .query("q", name)
+            .query("limit", "25")
+            .call()
+            .map_err(|e| format!("Deezer: {e}"))?
+            .body_mut()
+            .read_json::<Value>()
+            .map_err(|e| e.to_string())?;
+        let want = simple(name);
+        let mut same: Vec<&Value> = v["data"].as_array().into_iter().flatten().filter(|a| simple(a["name"].as_str().unwrap_or("")) == want).collect();
+        same.sort_by_key(|a| std::cmp::Reverse(a["nb_fan"].as_u64().unwrap_or(0)));
+        let mut best: Option<DzArtist> = None;
+        for a in same.into_iter().take(6) {
+            let Some(id) = a["id"].as_u64() else { continue };
+            let albums = dz_get(&format!("https://api.deezer.com/artist/{id}/albums"), "200")?;
+            let top = dz_get(&format!("https://api.deezer.com/artist/{id}/top"), "100")?;
+            let theirs: std::collections::HashSet<String> = albums["data"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .chain(top["data"].as_array().into_iter().flatten())
+                .map(|x| bare_title(x["title"].as_str().unwrap_or("")))
+                .collect();
+            let matches = mine.iter().filter(|t| theirs.contains(*t)).count();
+            let picture = a["picture_xl"].as_str().filter(|u| !u.contains("/artist//")).unwrap_or("").to_string();
+            if matches > 0 && best.as_ref().is_none_or(|b| matches > b.matches) {
+                best = Some(DzArtist { id, picture, matches });
+            }
+        }
+        Ok(best)
+    })
 }
 
 /* ───────────── New releases (Deezer) ───────────── */
@@ -60,51 +132,79 @@ pub struct ArtistReleases {
     releases: Vec<Release>,
 }
 
-/// The releases Deezer knows for an artist (newest first). None if Deezer doesn't have
-/// an artist with exactly that name. Cached for 3 days.
-#[tauri::command]
-pub async fn artist_releases(name: String) -> Result<Option<ArtistReleases>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        cached("releases", &name, 3, || {
-            let v: Value = http()
-                .get("https://api.deezer.com/search/artist")
-                .query("q", &name)
-                .query("limit", "10")
-                .call()
-                .map_err(|e| format!("Deezer: {e}"))?
-                .body_mut()
-                .read_json()
-                .map_err(|e| e.to_string())?;
-            let want = simple(&name);
-            let Some(id) = v["data"].as_array().into_iter().flatten().find(|a| simple(a["name"].as_str().unwrap_or("")) == want).and_then(|a| a["id"].as_u64()) else {
-                return Ok(None);
-            };
-            let v: Value = http()
-                .get(&format!("https://api.deezer.com/artist/{id}/albums"))
-                .query("limit", "100")
-                .call()
-                .map_err(|e| format!("Deezer: {e}"))?
-                .body_mut()
-                .read_json()
-                .map_err(|e| e.to_string())?;
-            let mut releases: Vec<Release> = v["data"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|a| Release {
-                    title: a["title"].as_str().unwrap_or("").into(),
-                    date: a["release_date"].as_str().unwrap_or("").into(),
-                    kind: a["record_type"].as_str().unwrap_or("album").into(),
-                    cover: a["cover_medium"].as_str().unwrap_or("").into(),
-                    link: a["link"].as_str().unwrap_or("").into(),
-                })
-                .collect();
-            releases.sort_by(|a, b| b.date.cmp(&a.date));
-            Ok(Some(ArtistReleases { name: name.clone(), releases }))
-        })
+/// The label of a Deezer album ("" if unknown)
+fn album_label(id: u64) -> String {
+    std::thread::sleep(Duration::from_millis(120)); // Deezer allows 50 requests per 5 s
+    dz_get(&format!("https://api.deezer.com/album/{id}"), "1").ok().and_then(|v| v["label"].as_str().map(simple)).unwrap_or_default()
+}
+
+/// The releases of your artist on Deezer (newest first), from the last two years. None if
+/// Deezer has no artist of that name whose music matches yours. Cached for 3 days.
+///
+/// Deezer sometimes files songs of other people with the same name under one artist (often
+/// AI-made filler): a new release only counts if it's on a label your albums of that artist
+/// came out on.
+pub fn releases_of(name: &str, titles: &[String]) -> Result<Option<ArtistReleases>, String> {
+    let mine: std::collections::HashSet<String> = titles.iter().map(|t| bare_title(t)).collect();
+    cached("releases", &format!("{name} - {}", mine.len()), 3, || {
+        let Some(artist) = deezer_artist(name, titles)? else { return Ok(None) };
+        let v = dz_get(&format!("https://api.deezer.com/artist/{}/albums", artist.id), "200")?;
+        let all: Vec<&Value> = v["data"].as_array().into_iter().flatten().collect();
+        let since = {
+            let days = SystemTimeDays::now() - 760;
+            SystemTimeDays::date(days)
+        };
+        // Labels of the releases you have (a few are enough)
+        let labels: std::collections::HashSet<String> = all
+            .iter()
+            .filter(|a| mine.contains(&bare_title(a["title"].as_str().unwrap_or(""))))
+            .take(5)
+            .filter_map(|a| a["id"].as_u64())
+            .map(album_label)
+            .filter(|l| !l.is_empty())
+            .collect();
+        let mut releases: Vec<Release> = all
+            .iter()
+            .filter(|a| a["release_date"].as_str().unwrap_or("") >= since.as_str())
+            .filter(|a| !mine.contains(&bare_title(a["title"].as_str().unwrap_or(""))))
+            .filter(|a| labels.is_empty() || a["id"].as_u64().is_some_and(|id| labels.contains(&album_label(id))))
+            .map(|a| Release {
+                title: a["title"].as_str().unwrap_or("").into(),
+                date: a["release_date"].as_str().unwrap_or("").into(),
+                kind: a["record_type"].as_str().unwrap_or("album").into(),
+                cover: a["cover_medium"].as_str().unwrap_or("").into(),
+                link: a["link"].as_str().unwrap_or("").into(),
+            })
+            .collect();
+        releases.sort_by(|a, b| b.date.cmp(&a.date));
+        Ok(Some(ArtistReleases { name: name.to_string(), releases }))
     })
-    .await
-    .map_err(|e| e.to_string())?
+}
+
+/// Days since 1970 and back to "YYYY-MM-DD" (no date library needed for this)
+struct SystemTimeDays;
+impl SystemTimeDays {
+    fn now() -> i64 {
+        (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() / 86400) as i64
+    }
+    fn date(days: i64) -> String {
+        // Howard Hinnant's civil_from_days
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+        format!("{y:04}-{m:02}-{d:02}")
+    }
+}
+
+#[tauri::command]
+pub async fn artist_releases(name: String, titles: Option<Vec<String>>) -> Result<Option<ArtistReleases>, String> {
+    tauri::async_runtime::spawn_blocking(move || releases_of(&name, &titles.unwrap_or_default())).await.map_err(|e| e.to_string())?
 }
 
 /* ───────────── Credits (MusicBrainz) ───────────── */
@@ -159,13 +259,14 @@ pub async fn song_credits(artist: String, title: String, duration_ms: u64) -> Re
             let v = crate::online::mb_get("recording", &[("query", &q), ("limit", "15")])?;
             let recs = v["recordings"].as_array().cloned().unwrap_or_default();
             // Best match: high score and the closest length
-            let best = recs
-                .iter()
-                .filter(|r| r["score"].as_u64().unwrap_or(0) >= 80)
-                .min_by_key(|r| {
-                    let len = r["length"].as_u64().unwrap_or(0);
-                    if duration_ms == 0 || len == 0 { 5000 } else { len.abs_diff(duration_ms) }
-                });
+            let best = recs.iter().filter(|r| r["score"].as_u64().unwrap_or(0) >= 80).min_by_key(|r| {
+                let len = r["length"].as_u64().unwrap_or(0);
+                if duration_ms == 0 || len == 0 {
+                    5000
+                } else {
+                    len.abs_diff(duration_ms)
+                }
+            });
             let Some(id) = best.and_then(|r| r["id"].as_str()) else { return Ok(None) };
             let r = crate::online::mb_get(&format!("recording/{id}"), &[("inc", "artist-credits+artist-rels+work-rels+work-level-rels")])?;
             let mut credits: Vec<Credit> = Vec::new();
@@ -184,18 +285,9 @@ pub async fn song_credits(artist: String, title: String, duration_ms: u64) -> Re
             for rel in r["relations"].as_array().into_iter().flatten().filter(|x| x["target-type"] == "artist") {
                 add(&mut credits, &role_name(rel), rel["artist"]["name"].as_str().unwrap_or(""));
             }
-            let artist_credit: String = r["artist-credit"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|c| format!("{}{}", c["name"].as_str().unwrap_or(""), c["joinphrase"].as_str().unwrap_or("")))
-                .collect();
-            Ok(Some(Credits {
-                title: r["title"].as_str().unwrap_or(&title).into(),
-                artist: artist_credit,
-                url: format!("https://musicbrainz.org/recording/{id}"),
-                credits,
-            }))
+            let artist_credit: String =
+                r["artist-credit"].as_array().into_iter().flatten().map(|c| format!("{}{}", c["name"].as_str().unwrap_or(""), c["joinphrase"].as_str().unwrap_or(""))).collect();
+            Ok(Some(Credits { title: r["title"].as_str().unwrap_or(&title).into(), artist: artist_credit, url: format!("https://musicbrainz.org/recording/{id}"), credits }))
         })
     })
     .await
@@ -204,7 +296,9 @@ pub async fn song_credits(artist: String, title: String, duration_ms: u64) -> Re
 
 /* ───────────── Searching by lyrics ───────────── */
 
-static LYRICS_INDEX: Mutex<Option<(usize, Vec<(String, Vec<String>)>)>> = Mutex::new(None);
+/// (how many songs it was built from, [(path, words of the lyrics)])
+type LyricsIndex = (usize, Vec<(String, Vec<String>)>);
+static LYRICS_INDEX: Mutex<Option<LyricsIndex>> = Mutex::new(None);
 
 /// Lowercase, without accents or punctuation, so "Corazón," matches "corazon".
 fn fold(s: &str) -> String {
@@ -279,7 +373,7 @@ pub async fn search_lyrics(query: String, songs: Vec<(String, String)>, rebuild:
         }
         let mut idx = LYRICS_INDEX.lock().unwrap_or_else(|e| e.into_inner());
         // songs: (path, "Artist - Title")
-        if rebuild || idx.as_ref().map_or(true, |(n, _)| *n != songs.len()) {
+        if rebuild || idx.as_ref().is_none_or(|(n, _)| *n != songs.len()) {
             let list: Vec<(String, Vec<String>)> = songs.par_iter().map(|(p, n)| (p.clone(), lyric_lines(p, n))).filter(|(_, l)| !l.is_empty()).collect();
             *idx = Some((songs.len(), list));
         }
@@ -289,7 +383,11 @@ pub async fn search_lyrics(query: String, songs: Vec<(String, String)>, rebuild:
             let has_all = |t: &str| words.iter().all(|w| t.contains(w.as_str()));
             let line = folded.iter().position(|l| has_all(l)).or_else(|| {
                 let all = folded.join(" ");
-                if has_all(&all) { folded.iter().position(|l| l.contains(words[0].as_str())) } else { None }
+                if has_all(&all) {
+                    folded.iter().position(|l| l.contains(words[0].as_str()))
+                } else {
+                    None
+                }
             });
             if let Some(i) = line {
                 hits.push(LyricHit { path: path.clone(), line: lines[i].clone() });
@@ -429,9 +527,18 @@ mod tests {
         if std::env::var("WAX_NET").is_err() {
             return;
         }
-        let r = tauri::async_runtime::block_on(artist_releases("Radiohead".into())).unwrap().unwrap();
-        println!("Radiohead releases: {} · newest: {} ({})", r.releases.len(), r.releases[0].title, r.releases[0].date);
-        assert!(r.releases.len() > 10);
+        // Ghost the Swedish band, not the rappers and the filler filed under the same name
+        let titles: Vec<String> = ["Opus Eponymous", "Infestissumam", "Meliora", "Prequelle", "Impera", "Square Hammer", "Mary On A Cross", "Cirice"].map(String::from).to_vec();
+        let ghost = deezer_artist("Ghost", &titles).unwrap().unwrap();
+        println!("Ghost: Deezer artist {} ({} titles match) · {}", ghost.id, ghost.matches, ghost.picture);
+        assert!(ghost.matches >= 4);
+        let r = releases_of("Ghost", &titles).unwrap().unwrap();
+        println!("Ghost releases (2 years): {}", r.releases.iter().map(|x| format!("{} ({}, {})", x.title, x.kind, x.date)).collect::<Vec<_>>().join(" | "));
+        assert!(!r.releases.iter().any(|x| x.title.contains("Pogoda") || x.title.contains("Где")));
+        // An artist nobody with that name matches: nothing rather than a stranger
+        assert!(deezer_artist("Ghost", &["zzqx not a real album".into()]).unwrap().is_none());
+        let broco = deezer_artist("Don Broco", &["Technology".into(), "Amazing Things".into(), "Priorities".into()]).unwrap().unwrap();
+        println!("Don Broco: {} · {}", broco.id, broco.picture);
         let idx = tauri::async_runtime::block_on(autoeq_index()).unwrap();
         let hd600 = idx.iter().find(|m| m.name == "Sennheiser HD 600" && m.source == "oratory1990").unwrap();
         let prof = tauri::async_runtime::block_on(autoeq_profile(hd600.path.clone())).unwrap();
@@ -444,5 +551,11 @@ mod tests {
     #[test]
     fn folding() {
         assert_eq!(fold("¡Corazón,  ESPINADO!"), "corazon espinado");
+        assert_eq!(bare_title("Meliora (Deluxe Edition) [Remastered]"), "meliora");
+        assert_eq!(bare_title("Square Hammer - Live"), "squarehammer");
+        assert_eq!(bare_title("Kiss the Go-Goat feat. Someone"), "kissthegogoat");
+        assert_eq!(SystemTimeDays::date(0), "1970-01-01");
+        assert_eq!(SystemTimeDays::date(20_749), "2026-10-23");
+        assert_eq!(SystemTimeDays::date(11_016), "2000-02-29");
     }
 }

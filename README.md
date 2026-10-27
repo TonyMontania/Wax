@@ -38,6 +38,7 @@ The classic 2015–2017 Spotify desktop look · for the files on your computer �
 - [See it in action](#see-it-in-action)
 - [Why Wax?](#why-wax)
 - [Features](#features)
+- [Listen Together](#listen-together)
 - [Your music folder](#your-music-folder)
 - [Online services](#online-services)
 - [Storage](#storage)
@@ -170,7 +171,8 @@ Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#
 
 - **Last.fm** — scrobbling, Popular songs, Related Artists, bios, album notes, tags as genres, ♥ ↔ Loved tracks, import your history
 - **ListenBrainz** scrobbling (queued when offline)
-- **New Releases** from your artists you don't own yet
+- **New Releases** from your artists you don't own yet — matched to *your* artist, not a namesake
+- **Listen Together** — host a session and friends hear it in sync, from Wax or any web browser; they can add songs from your library or send their own; lighter MP3 mode, IPv6; direct connection, no outside service
 - **Your Stats** and a yearly **Wrapped**
 - **Search inside lyrics**
 - **Media keys**, Windows media panel, taskbar ⏮ ⏯ ⏭ buttons
@@ -184,6 +186,23 @@ Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#
 </td>
 </tr>
 </table>
+
+## Listen Together
+
+Listen to the same music at the same moment with friends: one person hosts and plays songs from their own library, everyone who joins hears them in sync.
+
+1. **Host:** sidebar → **Listen Together** → **Start session**. Wax shows the invite codes:
+   - **Same Wi-Fi or network** — for people next to you.
+   - **Anywhere else** — Wax asks your router to open the way (UPnP). If it can't, forward **port 47800 (TCP)** to your computer in the router's settings. Some internet providers share one address among many customers (CGNAT): then this code can't work, but…
+   - **Anywhere else, over IPv6** — appears when your connection has IPv6, which often works where the other one doesn't.
+2. **Guests with Wax:** **Listen Together** → paste the code → **Join**. They can add songs from your library (if you allow it) and send songs from their own — right-click a song → *Add to …'s session*, or search under *Play one of your songs*.
+3. **Guests without Wax:** copy the link (🔗 next to a code) and open it in any browser, on a computer or a phone.
+
+Good to know:
+
+- **Upload speed matters:** each guest receives the songs from your computer. With a slow upload or many guests, choose **Lighter (MP3 320 kbps)**: lossless files travel about 3 times smaller.
+- **Songs guests send** play for everyone, then are deleted when the session ends. They don't count in your stats or scrobbles.
+- The first time, your system may ask whether Wax can use the network: allow it.
 
 ## Your music folder
 
@@ -254,6 +273,7 @@ Settings → About opens the program folder and the data folder.
 
 - **No accounts, no telemetry, no analytics.** Nothing is sent home.
 - **Outbound requests only for the services above** — and each can be turned off in Settings. The update check against GitHub Releases runs once a day (can be turned off too).
+- **Listen Together** connects the computers directly, with no server in between. Guests can only get the song playing and the ones queued (search shows names, never your file paths). The key inside a code never travels over the network: Wax guests sign each request with it, so someone watching the network can't join. The web link has a separate key that can listen and ask for songs, nothing more. Whoever keeps guessing keys is blocked for 10 minutes, and codes stop working when the session ends. Songs travel without encryption, as on any local music share.
 - **Keys and tokens** you paste (Last.fm, ListenBrainz, Discord) live in `state.json` on your disk and are only sent to that service.
 
 ## Credits

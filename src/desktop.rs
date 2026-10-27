@@ -217,10 +217,7 @@ pub mod thumbbar {
     use windows::core::w;
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
-    use windows::Win32::UI::Shell::{
-        DefSubclassProc, ITaskbarList3, SetWindowSubclass, TaskbarList, THBF_ENABLED, THBN_CLICKED, THB_FLAGS, THB_ICON,
-        THB_TOOLTIP, THUMBBUTTON,
-    };
+    use windows::Win32::UI::Shell::{DefSubclassProc, ITaskbarList3, SetWindowSubclass, TaskbarList, THBF_ENABLED, THBN_CLICKED, THB_FLAGS, THB_ICON, THB_TOOLTIP, THUMBBUTTON};
     use windows::Win32::UI::WindowsAndMessaging::{CreateIconFromResourceEx, RegisterWindowMessageW, HICON, LR_DEFAULTCOLOR, WM_COMMAND};
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
@@ -242,25 +239,14 @@ pub mod thumbbar {
         for (i, c) in tip.encode_utf16().take(259).enumerate() {
             sz[i] = c;
         }
-        THUMBBUTTON {
-            dwMask: THB_ICON | THB_TOOLTIP | THB_FLAGS,
-            iId: id,
-            iBitmap: 0,
-            hIcon: icon(png),
-            szTip: sz,
-            dwFlags: THBF_ENABLED,
-        }
+        THUMBBUTTON { dwMask: THB_ICON | THB_TOOLTIP | THB_FLAGS, iId: id, iBitmap: 0, hIcon: icon(png), szTip: sz, dwFlags: THBF_ENABLED }
     }
 
     fn buttons() -> [THUMBBUTTON; 3] {
         let playing = PLAYING.load(Ordering::Relaxed);
         [
             button(PREV, include_bytes!("../icons/tb_prev.png"), "Previous"),
-            if playing {
-                button(TOGGLE, include_bytes!("../icons/tb_pause.png"), "Pause")
-            } else {
-                button(TOGGLE, include_bytes!("../icons/tb_play.png"), "Play")
-            },
+            if playing { button(TOGGLE, include_bytes!("../icons/tb_pause.png"), "Pause") } else { button(TOGGLE, include_bytes!("../icons/tb_play.png"), "Play") },
             button(NEXT, include_bytes!("../icons/tb_next.png"), "Next"),
         ]
     }
@@ -333,9 +319,9 @@ pub fn taskbar_playing(app: AppHandle, playing: bool) {
 }
 
 /* ───────────── Full screen ("Now playing") ─────────────
-   The window has no frame; if it was maximized, Windows keeps the work-area size (without the
-   taskbar) when it goes full screen, leaving a gap at the bottom. So it's un-maximized first
-   and then sized to the whole monitor; leaving full screen puts it back as it was. */
+The window has no frame; if it was maximized, Windows keeps the work-area size (without the
+taskbar) when it goes full screen, leaving a gap at the bottom. So it's un-maximized first
+and then sized to the whole monitor; leaving full screen puts it back as it was. */
 
 static WAS_MAXIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -364,8 +350,8 @@ pub async fn set_fullscreen(app: AppHandle, on: bool) -> Result<(), String> {
 }
 
 /* ───────────── Start with Windows and shortcuts ─────────────
-   Portable-friendly: the Run entry and the shortcuts point at wherever Wax.exe is now.
-   If the folder is moved, the Run entry is corrected on the next start. */
+Portable-friendly: the Run entry and the shortcuts point at wherever Wax.exe is now.
+If the folder is moved, the Run entry is corrected on the next start. */
 
 pub const AUTOSTART_ARG: &str = "--autostart";
 
@@ -413,12 +399,20 @@ fn run_entry() -> Option<String> {
 fn write_run_entry() -> Result<(), String> {
     let value = format!("\"{}\" {AUTOSTART_ARG}", exe());
     let out = quiet("reg", &["add", RUN_KEY, "/v", "Wax", "/t", "REG_SZ", "/d", &value, "/f"]).map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
 }
 #[cfg(windows)]
 fn remove_run_entry() -> Result<(), String> {
     let out = quiet("reg", &["delete", RUN_KEY, "/v", "Wax", "/f"]).map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -507,7 +501,9 @@ pub async fn create_shortcut(place: String) -> Result<String, String> {
             let script = format!(
                 "$p = Join-Path ({base}) 'Wax.lnk'; $s = (New-Object -ComObject WScript.Shell).CreateShortcut($p); \
                  $s.TargetPath = '{}'; $s.WorkingDirectory = '{}'; $s.IconLocation = '{},0'; $s.Description = 'Wax music player'; $s.Save(); $p",
-                q(&exe), q(&dir), q(&exe)
+                q(&exe),
+                q(&dir),
+                q(&exe)
             );
             let out = quiet("powershell", &["-NoProfile", "-NonInteractive", "-Command", &script]).map_err(|e| e.to_string())?;
             if out.status.success() {
@@ -547,10 +543,7 @@ pub fn startup(app: &AppHandle) {
             let _ = write_run_entry();
         }
     }
-    let prefs: serde_json::Value = std::fs::read_to_string(crate::data_dir().join("state.json"))
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+    let prefs: serde_json::Value = std::fs::read_to_string(crate::data_dir().join("state.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
     let Some(w) = app.get_webview_window("main") else { return };
     if auto && prefs["startMinimized"].as_bool().unwrap_or(false) {
         if prefs["closeToTray"].as_bool().unwrap_or(false) {

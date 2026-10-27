@@ -25,7 +25,7 @@ async function imagePicker({ kind, key, name }) {
     <div class="btns"><button class="btn btn-ghost" data-d="file">Choose a file…</button>${current ? `<button class="btn btn-ghost" data-d="reset">Back to automatic</button>` : ''}<span class="grow"></span>
       <button class="btn btn-ghost" data-d="cancel">Cancel</button><button class="btn btn-green" data-d="ok" disabled>Use this image</button></div>`, 'wide');
   const okBtn = $('[data-d="ok"]', d);
-  invoke('image_candidates', { kind, artist: artist || '', album: album?.title || '' }).then(list => {
+  invoke('image_candidates', { kind, artist: artist || '', album: album?.title || '', titles: kind === 'artist' ? artistTitles(artist) : null }).then(list => {
     const g = $('#pick-grid', d); if (!g) return;
     g.innerHTML = list.length ? list.map((c, i) => `<div class="pick" data-pick="${i}" title="${esc(c.title)} — ${esc(c.sub)}"><img src="${esc(c.thumb)}" loading="lazy"><div class="t">${esc(c.title)}</div><div class="s">${esc(c.sub)}</div></div>`).join('')
       : `<p class="sub">Deezer has nothing for this. Choose a file of your own.</p>`;
@@ -400,7 +400,7 @@ async function loadReleases() {
   for (const [n, ar] of artists.entries()) {
     if (REL.data.has(ar.name)) continue;
     const t0 = performance.now();
-    const r = await invoke('artist_releases', { name: ar.name }).catch(() => null);
+    const r = await invoke('artist_releases', { name: ar.name, titles: artistTitles(ar.name) }).catch(() => null);
     REL.data.set(ar.name, r);
     REL.progress = [n + 1, artists.length];
     if (n % 15 === 14 || n === artists.length - 1) renderReleases();
@@ -660,7 +660,7 @@ async function importSpotify() {
     report.push({ name: f.name, found: found.length, missing });
   }
   savePrefs(); renderSidebar();
-  const d = dialog(`<h2>Spotify playlists imported</h2>
+  dialog(`<h2>Spotify playlists imported</h2>
     <div class="sp-report">${report.map((r, k) => `<div class="sp-pl"><div class="row"><b>${esc(r.name)}</b><span class="grow"></span><span class="sub">${r.error ? esc(r.error) : `${r.found} of ${r.found + r.missing.length} songs`}</span></div>
       ${r.missing?.length ? `<details><summary>${plural(r.missing.length, "song you don't have", "songs you don't have")}</summary><div class="sp-miss">${r.missing.map(esc).join('<br>')}</div></details>` : ''}</div>`).join('')}</div>
     <div class="btns">${report.some(r => r.missing?.length) ? `<button class="btn btn-ghost" data-d="copy">Copy the missing list</button>` : ''}<span class="grow"></span><button class="btn btn-green" data-d="ok">Done</button></div>`, 'wide');
@@ -761,25 +761,20 @@ async function cleanImageCache(manual = false) {
 setTimeout(() => { if (Date.now() - (S.prefs.cacheCleanedAt || 0) > 7 * 86400 * 1000) cleanImageCache(false); }, 60000);
 
 /* ───────────── Actions ───────────── */
-const extraActionBase = extraAction;
-extraAction = function (a, arg) {
-  switch (a) {
-    case 'pl-edit': editPlaylistDetails(arg); return;
-    case 'clean-images': cleanImageCache(true); return;
-    case 'upd-check': checkUpdates(true); return;
-    case 'upd-install': installUpdate(); return;
-    case 'upd-notes': updateNotes(); return;
-    case 'upd-restart': invoke('restart_app'); return;
-    case 'spotify-import': importSpotify(); return;
-    case 'aeq-remove': delete S.prefs.autoeq; savePrefs(); applyEq(); rerender(); return;
-    case 'wrapped-save': {
-      const idxs = lists.get('wrapped-top') || []; if (!idxs.length) return;
-      const pl = { id: Date.now().toString(36), name: `Your Top Songs ${arg}`, tracks: idxs.map(i => S.tracks[i].path), created: Date.now(), description: `Your most played songs of ${arg}` };
-      S.prefs.playlists.push(pl); savePrefs(); renderSidebar(); toast(`Saved as "${pl.name}"`);
-      return;
-    }
-  }
-  return extraActionBase(a, arg);
-};
+addActions({
+  'pl-edit': arg => editPlaylistDetails(arg),
+  'clean-images': () => cleanImageCache(true),
+  'upd-check': () => checkUpdates(true),
+  'upd-install': () => installUpdate(),
+  'upd-notes': () => updateNotes(),
+  'upd-restart': () => invoke('restart_app'),
+  'spotify-import': () => importSpotify(),
+  'aeq-remove': () => { delete S.prefs.autoeq; savePrefs(); applyEq(); rerender(); },
+  'wrapped-save': arg => {
+    const idxs = lists.get('wrapped-top') || []; if (!idxs.length) return;
+    const pl = { id: Date.now().toString(36), name: `Your Top Songs ${arg}`, tracks: idxs.map(i => S.tracks[i].path), created: Date.now(), description: `Your most played songs of ${arg}` };
+    S.prefs.playlists.push(pl); savePrefs(); renderSidebar(); toast(`Saved as "${pl.name}"`);
+  },
+});
 
 extrasReady();

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wax · Listen Together</title>
+<style>
+  :root { --bg: #121212; --card: #181818; --text: #fff; --sub: #a0a0a0; --green: #1db954; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: linear-gradient(#2a2a2a, var(--bg) 320px); background-color: var(--bg); color: var(--text);
+    font: 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif; min-height: 100vh; }
+  main { max-width: 420px; margin: 0 auto; padding: 28px 16px 40px; }
+  .brand { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--sub); text-align: center; }
+  h1 { font-size: 22px; text-align: center; margin: 6px 0 22px; }
+  .cover { width: 100%; aspect-ratio: 1; background: #282828 center/cover; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+    display: flex; align-items: center; justify-content: center; color: #555; font-size: 64px; }
+  .title { font-size: 20px; font-weight: 700; margin-top: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .artist { color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar { height: 4px; background: #404040; border-radius: 2px; margin: 16px 0 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--sub); }
+  .times { display: flex; justify-content: space-between; font-size: 11px; color: var(--sub); }
+  .status { text-align: center; color: var(--sub); margin: 14px 0; min-height: 20px; }
+  input[type=text] { width: 100%; padding: 12px 14px; border-radius: 4px; border: 0; background: #333; color: var(--text); font: inherit; margin-bottom: 12px; }
+  button { width: 100%; padding: 13px; border: 0; border-radius: 500px; background: var(--green); color: #fff; font: inherit; font-weight: 700;
+    letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+  button.ghost { background: transparent; border: 1px solid #777; }
+  .vol { display: flex; gap: 10px; align-items: center; color: var(--sub); margin: 8px 0 18px; }
+  .vol input { flex: 1; accent-color: var(--green); }
+  .people { color: var(--sub); font-size: 12px; text-align: center; margin-top: 18px; }
+  .hidden { display: none; }
+  h2.sec { font-size: 16px; margin: 28px 0 10px; }
+  .song { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #282828; }
+  .song .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .song .s { color: var(--sub); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .song .from { color: var(--green); }
+  .song button { width: auto; padding: 6px 14px; font-size: 11px; background: transparent; border: 1px solid #777; }
+  .empty { color: var(--sub); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Wax · Listen Together</div>
+  <h1 id="host">Listening session</h1>
+
+  <section id="join">
+    <input type="text" id="name" placeholder="Your name" maxlength="40" autocomplete="nickname">
+    <button id="go">Start listening</button>
+    <p class="status" id="join-msg"></p>
+  </section>
+
+  <section id="player" class="hidden">
+    <div class="cover" id="cover">♪</div>
+    <div class="title" id="title">Nothing playing</div>
+    <div class="artist" id="artist">The host hasn't started a song yet</div>
+    <div class="bar"><i id="prog"></i></div>
+    <div class="times"><span id="cur">0:00</span><span id="dur">0:00</span></div>
+    <p class="status" id="status"></p>
+    <div class="vol"><span>Volume</span><input type="range" id="vol" min="0" max="1" step="0.01" value="0.8"></div>
+    <button class="ghost" id="leave">Leave</button>
+    <div class="people" id="people"></div>
+    <h2 class="sec">Up next</h2>
+    <div id="queue"><p class="empty">Nothing queued.</p></div>
+    <div id="req" class="hidden">
+      <h2 class="sec">Add a song</h2>
+      <input type="text" id="q" placeholder="Search the host's music" autocomplete="off">
+      <div id="hits"></div>
+    </div>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const key = new URLSearchParams(location.search).get('k') || '';
+const api = (p, extra = '') => `${p}?k=${encodeURIComponent(key)}${G.id ? '&g=' + G.id : ''}${extra}`;
+const G = { id: '', seq: 0, offset: 0, state: null, loaded: null, alive: true };
+const audio = new Audio();
+audio.preload = 'auto';
+const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+try { $('name').value = localStorage.getItem('waxName') || ''; } catch {}
+
+async function clock() {
+  let best = null;
+  for (let i = 0; i < 4; i++) {
+    const t0 = Date.now();
+    const r = await fetch(api('/api/time')).then(r => r.json());
+    const t1 = Date.now();
+    if (!best || t1 - t0 < best.rtt) best = { rtt: t1 - t0, offset: r.now - (t0 + t1) / 2 };
+  }
+  G.offset = best.offset;
+}
+
+$('go').onclick = async () => {
+  const name = $('name').value.trim() || 'Guest';
+  try { localStorage.setItem('waxName', name); } catch {}
+  // A tap lets the browser play sound: unlock it now
+  audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+  audio.play().catch(() => {});
+  $('join-msg').textContent = 'Joining…';
+  try {
+    const r = await fetch(api('/api/join', `&name=${encodeURIComponent(name)}&web=1`));
+    if (!r.ok) throw new Error();
+    const j = await r.json();
+    G.id = j.guest;
+    await clock();
+    $('join').classList.add('hidden'); $('player').classList.remove('hidden');
+    apply(j.state);
+    poll();
+    setInterval(() => clock().catch(() => {}), 30000);
+  } catch { $('join-msg').textContent = "Couldn't join. The session may have ended."; }
+};
+
+$('leave').onclick = () => {
+  G.alive = false;
+  audio.pause();
+  fetch(api('/api/leave')).catch(() => {});
+  $('player').classList.add('hidden'); $('join').classList.remove('hidden');
+  $('join-msg').textContent = 'You left the session.';
+  G.id = '';
+};
+addEventListener('pagehide', () => { if (G.id) navigator.sendBeacon?.(api('/api/leave')); });
+$('vol').oninput = e => { audio.volume = +e.target.value; };
+
+async function poll() {
+  while (G.alive) {
+    try {
+      const s = await fetch(api('/api/state', `&since=${G.seq}`)).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+      apply(s);
+      if (s.ended) return;
+    } catch {
+      $('status').textContent = 'Reconnecting…';
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+}
+
+// Where the host is now, in seconds from the start of the song
+function hostPos(s) {
+  if (!s?.track) return 0;
+  return (s.posMs + (s.paused ? 0 : Date.now() + G.offset - s.at)) / 1000;
+}
+const startOf = t => (t?.startMs || 0) / 1000;
+
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const songHtml = (t, extra = '') => `<div class="song"><div class="t">${esc(t.title)}<div class="s">${esc(t.artist)}${t.album ? ' · ' + esc(t.album) : ''}${t.from ? ` · <span class="from">shared by ${esc(t.from)}</span>` : ''}</div></div>${extra}</div>`;
+
+let searchT = 0;
+$('q').oninput = e => {
+  clearTimeout(searchT);
+  const q = e.target.value.trim();
+  searchT = setTimeout(async () => {
+    if (q.length < 2) { $('hits').innerHTML = ''; return; }
+    const hits = await fetch(api('/api/search', `&q=${encodeURIComponent(q)}`)).then(r => r.json()).catch(() => []);
+    $('hits').innerHTML = hits.length ? hits.map(h => songHtml(h, `<button data-add="${h.id}">Add</button>`)).join('') : '<p class="empty">Nothing found.</p>';
+  }, 250);
+};
+$('hits').onclick = async e => {
+  const b = e.target.closest('[data-add]'); if (!b) return;
+  b.disabled = true;
+  const r = await fetch(api('/api/request', `&id=${b.dataset.add}`)).catch(() => null);
+  b.textContent = r?.ok ? 'Added' : 'Not now';
+};
+
+function apply(s) {
+  G.seq = s.seq; G.state = s;
+  $('queue').innerHTML = s.queue?.length ? s.queue.slice(0, 15).map(t => songHtml(t)).join('') : '<p class="empty">Nothing queued.</p>';
+  $('req').classList.toggle('hidden', !s.allowRequests);
+  $('host').textContent = `Listening with ${s.name}`;
+  const n = s.guests.length;
+  $('people').textContent = `${s.name} (host)${n ? ' · ' + s.guests.map(g => g.name).join(', ') : ''}`;
+  if (s.ended) {
+    G.alive = false; audio.pause();
+    $('status').textContent = `${s.name} ended the session.`;
+    return;
+  }
+  const t = s.track;
+  if (!t) {
+    audio.pause(); G.loaded = null;
+    $('title').textContent = 'Nothing playing'; $('artist').textContent = "The host hasn't started a song yet";
+    $('cover').style.backgroundImage = ''; $('cover').textContent = '♪';
+    return;
+  }
+  if (G.loaded !== t.id) {
+    G.loaded = t.id;
+    $('title').textContent = t.title; $('artist').textContent = [t.artist, t.album, t.from && `shared by ${t.from}`].filter(Boolean).join(' · ');
+    $('dur').textContent = fmt(t.duration);
+    $('cover').textContent = '';
+    $('cover').style.backgroundImage = `url("${api('/api/cover/' + t.id)}&s=${s.seq}")`;
+    const img = new Image();
+    img.onerror = () => { if (G.loaded === t.id) { $('cover').style.backgroundImage = ''; $('cover').textContent = '♪'; } };
+    img.src = `${api('/api/cover/' + t.id)}&s=${s.seq}`;
+    audio.src = api('/api/file/' + t.id);
+    $('status').textContent = 'Loading…';
+    audio.addEventListener('loadedmetadata', () => sync(true), { once: true });
+  } else sync(true);
+}
+
+function sync(force) {
+  const s = G.state, t = s?.track;
+  if (!t || G.loaded !== t.id || audio.readyState < 1) return;
+  const want = hostPos(s);
+  if (s.paused) { if (!audio.paused) audio.pause(); $('status').textContent = 'Paused by the host'; }
+  else if (audio.paused) audio.play().then(() => { $('status').textContent = ''; }).catch(() => { $('status').textContent = 'Tap anywhere to hear it'; });
+  else $('status').textContent = '';
+  const drift = audio.currentTime - startOf(t) - want;
+  if (force ? Math.abs(drift) > 0.25 : Math.abs(drift) > 0.6) audio.currentTime = startOf(t) + want;
+}
+document.addEventListener('click', () => { if (G.state?.track && !G.state.paused && audio.paused) sync(true); });
+audio.addEventListener('error', () => {
+  if (G.state?.track && audio.src.includes('/api/file/')) $('status').textContent = `Your browser can't play this kind of file (.${G.state.track.ext}).`;
+});
+
+setInterval(() => {
+  const t = G.state?.track; if (!t || G.state.ended) return;
+  const pos = Math.max(0, audio.currentTime - startOf(t));
+  $('cur').textContent = fmt(pos);
+  $('prog').style.width = `${Math.min(100, pos / (t.duration || 1) * 100)}%`;
+  if (t.endMs && audio.currentTime * 1000 >= t.endMs) audio.pause();   // end of a CUE track
+  sync(false);
+}, 500);
+</script>
+</body>
+</html>

@@ -82,13 +82,26 @@ pub struct PeqFilter {
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AudioEvent {
-    Started { id: u64 },
+    Started {
+        id: u64,
+    },
     /// The engine moved on to the next track by itself (gapless or crossfaded).
-    Advanced { id: u64 },
+    Advanced {
+        id: u64,
+    },
     /// The track ended and there was no next one.
-    Ended { id: u64 },
-    Error { id: u64, message: String },
-    Time { id: u64, pos: u64, playing: bool },
+    Ended {
+        id: u64,
+    },
+    Error {
+        id: u64,
+        message: String,
+    },
+    Time {
+        id: u64,
+        pos: u64,
+        playing: bool,
+    },
 }
 
 struct Voice {
@@ -108,9 +121,9 @@ impl Voice {
 }
 
 /* ───────────── Decode thread + buffer ─────────────
-   The decode thread sends stereo chunks at the output rate; the audio thread only copies
-   samples out of them. If the buffer ever runs dry (it shouldn't: it holds ~3 s), the
-   audio thread plays silence instead of waiting. */
+The decode thread sends stereo chunks at the output rate; the audio thread only copies
+samples out of them. If the buffer ever runs dry (it shouldn't: it holds ~3 s), the
+audio thread plays silence instead of waiting. */
 
 const CHUNK_FRAMES: usize = 1024;
 const BUFFER_CHUNKS: usize = 128; // ≈ 3 s at 44.1/48 kHz
@@ -251,7 +264,7 @@ fn produce(mut dec: SymSource, out_rate: u32, tx: &SyncSender<Vec<f32>>) {
         let Ok(out) = rs.process(&input, None) else { return };
         let expected = eof.then(|| (in_frames * out_rate as u64 + in_rate as u64 / 2) / in_rate as u64);
         let mut chunk = Vec::with_capacity(out[0].len() * 2);
-        for i in 0..out[0].len() {
+        for (&l, &r) in out[0].iter().zip(&out[1]) {
             if skip > 0 {
                 skip -= 1;
                 continue;
@@ -259,8 +272,8 @@ fn produce(mut dec: SymSource, out_rate: u32, tx: &SyncSender<Vec<f32>>) {
             if expected.is_some_and(|e| out_frames >= e) {
                 break;
             }
-            chunk.push(out[0][i]);
-            chunk.push(out[1][i]);
+            chunk.push(l);
+            chunk.push(r);
             out_frames += 1;
         }
         if !chunk.is_empty() && tx.send(chunk).is_err() {
@@ -285,8 +298,8 @@ fn soft_clip(x: f32) -> f32 {
 }
 
 /* ───────────── Decoder (symphonia) ─────────────
-   `enable_gapless` trims the silence MP3/AAC encoders add at the start and the end:
-   essential so live albums play without gaps. */
+`enable_gapless` trims the silence MP3/AAC encoders add at the start and the end:
+essential so live albums play without gaps. */
 
 pub struct SymSource {
     format: Box<dyn FormatReader>,
@@ -308,26 +321,23 @@ pub struct SymSource {
 impl SymSource {
     pub fn open(path: &str) -> Result<SymSource, String> {
         let file = File::open(path).map_err(|e| format!("Couldn't open the file: {e}"))?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        // A song still arriving from a Listen Together host: reading waits for the rest
+        let source: Box<dyn symphonia::core::io::MediaSource> = match crate::party::growing(path) {
+            Some(dl) => Box::new(crate::party::GrowingFile::new(file, dl)),
+            None => Box::new(file),
+        };
+        let mss = MediaSourceStream::new(source, Default::default());
         let mut hint = Hint::new();
         if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
             hint.with_extension(ext);
         }
         let opts = FormatOptions { enable_gapless: true, ..Default::default() };
-        let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &opts, &MetadataOptions::default())
-            .map_err(|e| format!("Unsupported format: {e}"))?;
+        let probed = symphonia::default::get_probe().format(&hint, mss, &opts, &MetadataOptions::default()).map_err(|e| format!("Unsupported format: {e}"))?;
         let format = probed.format;
-        let track = format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .ok_or("The file has no audio")?;
+        let track = format.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL).ok_or("The file has no audio")?;
         let track_id = track.id;
         let params = track.codec_params.clone();
-        let decoder = symphonia::default::get_codecs()
-            .make(&params, &DecoderOptions::default())
-            .map_err(|e| format!("Unsupported codec: {e}"))?;
+        let decoder = symphonia::default::get_codecs().make(&params, &DecoderOptions::default()).map_err(|e| format!("Unsupported codec: {e}"))?;
         let dur = match (params.time_base, params.n_frames) {
             (Some(tb), Some(n)) => {
                 let t = tb.calc_time(n);
@@ -400,7 +410,7 @@ impl SymSource {
                     }
                     let spec = *d.spec();
                     let need = d.capacity() * spec.channels.count();
-                    if self.sb.as_ref().map_or(true, |b| b.capacity() < need) {
+                    if self.sb.as_ref().is_none_or(|b| b.capacity() < need) {
                         self.sb = Some(SampleBuffer::new(d.capacity() as u64, spec));
                     }
                     let sb = self.sb.as_mut().unwrap();
@@ -480,14 +490,7 @@ impl Biquad {
         let alpha = w0.sin() / (2.0 * q);
         let cos = w0.cos();
         let a0 = 1.0 + alpha / a;
-        Biquad {
-            b0: (1.0 + alpha * a) / a0,
-            b1: (-2.0 * cos) / a0,
-            b2: (1.0 - alpha * a) / a0,
-            a1: (-2.0 * cos) / a0,
-            a2: (1.0 - alpha / a) / a0,
-            z: [[0.0; 2]; 2],
-        }
+        Biquad { b0: (1.0 + alpha * a) / a0, b1: (-2.0 * cos) / a0, b2: (1.0 - alpha * a) / a0, a1: (-2.0 * cos) / a0, a2: (1.0 - alpha / a) / a0, z: [[0.0; 2]; 2] }
     }
     /// RBJ shelving filters (`high` = high shelf), as AutoEQ defines them.
     fn shelf(high: bool, f: f32, gain_db: f32, q: f32, fs: f32) -> Self {
@@ -541,13 +544,7 @@ impl Eq {
         let mut pre = 0.0;
         if s.enabled {
             pre += s.preamp.clamp(-15.0, 15.0);
-            filters.extend(
-                EQ_FREQS
-                    .iter()
-                    .zip(s.bands.iter())
-                    .filter(|(f, g)| g.abs() > 0.05 && **f < fs * 0.45)
-                    .map(|(f, g)| Biquad::peaking(*f, g.clamp(-15.0, 15.0), 1.1, fs)),
-            );
+            filters.extend(EQ_FREQS.iter().zip(s.bands.iter()).filter(|(f, g)| g.abs() > 0.05 && **f < fs * 0.45).map(|(f, g)| Biquad::peaking(*f, g.clamp(-15.0, 15.0), 1.1, fs)));
         }
         if !s.filters.is_empty() {
             pre += s.filter_preamp.clamp(-30.0, 10.0);
@@ -578,8 +575,8 @@ pub fn db_to_lin(db: f32) -> f32 {
 }
 
 /* ───────────── Crossfeed (headphones) ─────────────
-   Each ear also gets a little of the other channel, low-passed and delayed ~0.3 ms, the way
-   it happens with speakers. Makes hard-panned old stereo recordings less tiring. */
+Each ear also gets a little of the other channel, low-passed and delayed ~0.3 ms, the way
+it happens with speakers. Makes hard-panned old stereo recordings less tiring. */
 
 struct Crossfeed {
     a: f32,
@@ -764,11 +761,7 @@ impl Mixer {
         if let Some(v) = self.cur.as_mut() {
             match v.pull() {
                 Some((a, b)) => {
-                    let fade = if v.fade_in > 0 && v.frames < v.fade_in {
-                        (v.frames as f32 / v.fade_in as f32 * FRAC_PI_2).sin()
-                    } else {
-                        1.0
-                    };
+                    let fade = if v.fade_in > 0 && v.frames < v.fade_in { (v.frames as f32 / v.fade_in as f32 * FRAC_PI_2).sin() } else { 1.0 };
                     let g = v.gain * fade;
                     l += a * g;
                     r += b * g;
@@ -865,11 +858,7 @@ enum Ctl {
 
 fn open_voice(spec: &TrackSpec, rate: u32, start_ms: u64) -> Result<Voice, String> {
     let mut dec = SymSource::open(&spec.path)?;
-    let total_ms = if spec.duration_ms > 0 {
-        spec.duration_ms
-    } else {
-        dec.total_duration().map(|d| d.as_millis() as u64).unwrap_or(0)
-    };
+    let total_ms = if spec.duration_ms > 0 { spec.duration_ms } else { dec.total_duration().map(|d| d.as_millis() as u64).unwrap_or(0) };
     // CUE tracks: positions are relative to the track, the file is seeked from its start
     let base = spec.start_ms;
     let start = if start_ms > 0 || base > 0 {
@@ -899,9 +888,9 @@ fn open_voice(spec: &TrackSpec, rate: u32, start_ms: u64) -> Result<Voice, Strin
 }
 
 /* ───────────── Outputs ─────────────
-   The mixer can run on a normal (shared) Windows output through rodio/cpal, or on a
-   WASAPI exclusive stream that skips the Windows mixer. Switching output creates a new mixer;
-   the frontend then reloads the current track where it was. */
+The mixer can run on a normal (shared) Windows output through rodio/cpal, or on a
+WASAPI exclusive stream that skips the Windows mixer. Switching output creates a new mixer;
+the frontend then reloads the current track where it was. */
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -957,11 +946,9 @@ pub fn output_devices() -> Vec<String> {
 fn open_shared(device: Option<&str>, mixer_for: impl FnOnce(u32) -> Mixer) -> Result<(Keep, OutputInfo), String> {
     let host = rodio::cpal::default_host();
     let dev = match device {
-        Some(name) => host
-            .output_devices()
-            .map_err(|e| e.to_string())?
-            .find(|d| d.name().ok().as_deref() == Some(name))
-            .ok_or_else(|| format!("The device \"{name}\" isn't connected"))?,
+        Some(name) => {
+            host.output_devices().map_err(|e| e.to_string())?.find(|d| d.name().ok().as_deref() == Some(name)).ok_or_else(|| format!("The device \"{name}\" isn't connected"))?
+        }
         None => host.default_output_device().ok_or("No audio device")?,
     };
     let rate = dev.default_output_config().map(|c| c.sample_rate().0).map_err(|e| e.to_string())?;
@@ -1036,7 +1023,13 @@ mod exclusive {
                     let name = dev.get_friendlyname().unwrap_or_default();
                     let mut client = dev.get_iaudioclient().map_err(friendly)?;
                     let rate = client.get_mixformat().map(|f| f.get_samplespersec()).unwrap_or(48000) as usize;
-                    let tries = [(Fmt::F32, 32, 32, SampleType::Float), (Fmt::I32, 32, 32, SampleType::Int), (Fmt::I32, 32, 24, SampleType::Int), (Fmt::I24, 24, 24, SampleType::Int), (Fmt::I16, 16, 16, SampleType::Int)];
+                    let tries = [
+                        (Fmt::F32, 32, 32, SampleType::Float),
+                        (Fmt::I32, 32, 32, SampleType::Int),
+                        (Fmt::I32, 32, 24, SampleType::Int),
+                        (Fmt::I24, 24, 24, SampleType::Int),
+                        (Fmt::I16, 16, 16, SampleType::Int),
+                    ];
                     let (fmt, wf) = tries
                         .iter()
                         .find_map(|(f, store, valid, st)| {
@@ -1125,12 +1118,7 @@ impl Engine {
     where
         F: Fn(AudioEvent) + Send + 'static,
     {
-        let shared = Arc::new(Shared {
-            id: AtomicU64::new(0),
-            pos: AtomicU64::new(0),
-            playing: AtomicBool::new(false),
-            rate: AtomicU64::new(44100),
-        });
+        let shared = Arc::new(Shared { id: AtomicU64::new(0), pos: AtomicU64::new(0), playing: AtomicBool::new(false), rate: AtomicU64::new(44100) });
         let (ev_tx, ev_rx) = channel::<AudioEvent>();
         // The mixer currently playing: the control thread sends it voices through this
         let (first_tx, _) = channel::<Mix>();
@@ -1296,11 +1284,7 @@ impl Engine {
                     idle = if playing { 0 } else { idle + 1 };
                     if playing || idle % 4 == 1 {
                         let rate = sh2.rate.load(Relaxed).max(1);
-                        emit(AudioEvent::Time {
-                            id: sh2.id.load(Relaxed),
-                            pos: sh2.pos.load(Relaxed) * 1000 / rate,
-                            playing,
-                        });
+                        emit(AudioEvent::Time { id: sh2.id.load(Relaxed), pos: sh2.pos.load(Relaxed) * 1000 / rate, playing });
                     }
                 }
             })
@@ -1362,8 +1346,7 @@ pub fn analyze_loudness(path: &str) -> Result<Loudness, String> {
     let mut dec = SymSource::open(path)?;
     let ch = dec.channels().max(1) as u32;
     let rate = dec.sample_rate().max(1);
-    let mut meter = ebur128::EbuR128::new(ch, rate, ebur128::Mode::I | ebur128::Mode::SAMPLE_PEAK)
-        .map_err(|e| e.to_string())?;
+    let mut meter = ebur128::EbuR128::new(ch, rate, ebur128::Mode::I | ebur128::Mode::SAMPLE_PEAK).map_err(|e| e.to_string())?;
     // Measured packet by packet, straight from the decoder's buffer
     loop {
         let whole = dec.buf.len() - dec.buf.len() % ch as usize;
@@ -1386,8 +1369,9 @@ pub fn analyze_loudness(path: &str) -> Result<Loudness, String> {
 mod tests {
     use super::*;
 
+    /// Short test files (3 s tones) in tests/fixtures; WAX_TEST_AUDIO points elsewhere
     fn dir() -> String {
-        std::env::var("WAX_TEST_AUDIO").expect("WAX_TEST_AUDIO")
+        crate::test_audio_dir()
     }
     fn spec(id: u64, f: &str, xf: u64) -> TrackSpec {
         TrackSpec { id, path: format!("{}/{f}", dir()), gain_db: 0.0, duration_ms: 3000, crossfade_ms: xf, start_ms: 0, end_ms: 0 }
@@ -1413,14 +1397,24 @@ mod tests {
                 let _r = m.next().unwrap();
                 peak = peak.max(l.abs());
             }
-            if peak > 0.01 { audible += block; started = true; max_gap = max_gap.max(gap); gap = 0; } else if started { gap += block; }
+            if peak > 0.01 {
+                audible += block;
+                started = true;
+                max_gap = max_gap.max(gap);
+                gap = 0;
+            } else if started {
+                gap += block;
+            }
         }
-        let evs = erx.try_iter().map(|e| match e {
-            AudioEvent::Started { id } => format!("start{id}"),
-            AudioEvent::Advanced { id } => format!("adv{id}"),
-            AudioEvent::Ended { id } => format!("end{id}"),
-            other => format!("{other:?}"),
-        }).collect();
+        let evs = erx
+            .try_iter()
+            .map(|e| match e {
+                AudioEvent::Started { id } => format!("start{id}"),
+                AudioEvent::Advanced { id } => format!("adv{id}"),
+                AudioEvent::Ended { id } => format!("end{id}"),
+                other => format!("{other:?}"),
+            })
+            .collect();
         (evs, audible as f32 / rate, max_gap as f32 / rate * 1000.0)
     }
 
@@ -1529,7 +1523,11 @@ mod tests {
         let (mut ss, mut sc, mut cc, mut ys, mut yc) = (0.0, 0.0, 0.0, 0.0, 0.0);
         for (k, y) in seg.iter().enumerate() {
             let (s, c) = ((w * (k + 24000) as f64).sin(), (w * (k + 24000) as f64).cos());
-            ss += s * s; sc += s * c; cc += c * c; ys += y * s; yc += y * c;
+            ss += s * s;
+            sc += s * c;
+            cc += c * c;
+            ys += y * s;
+            yc += y * c;
         }
         let det = ss * cc - sc * sc;
         let (a, bb) = ((ys * cc - yc * sc) / det, (yc * ss - ys * sc) / det);

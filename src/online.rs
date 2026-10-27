@@ -88,13 +88,7 @@ pub async fn mb_search(artist: String, album: String) -> Result<Vec<MbRelease>, 
                 date: r["date"].as_str().unwrap_or_default().into(),
                 country: r["country"].as_str().unwrap_or_default().into(),
                 tracks: r["track-count"].as_u64().unwrap_or(0),
-                format: r["media"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|m| m["format"].as_str())
-                    .collect::<Vec<_>>()
-                    .join(" + "),
+                format: r["media"].as_array().into_iter().flatten().filter_map(|m| m["format"].as_str()).collect::<Vec<_>>().join(" + "),
             })
             .collect())
     })
@@ -134,7 +128,7 @@ pub async fn mb_release(id: String) -> Result<MbReleaseDetail, String> {
             .flatten()
             .filter_map(|g| Some((g["count"].as_u64().unwrap_or(0), g["name"].as_str()?.to_string())))
             .collect();
-        genres.sort_by(|a, b| b.0.cmp(&a.0));
+        genres.sort_by_key(|g| std::cmp::Reverse(g.0));
         let mut gnames: Vec<String> = Vec::new();
         for (_, g) in genres {
             let g = g
@@ -326,10 +320,7 @@ pub async fn scrobble(creds: ScrobbleCreds, track: ScrobbleTrack, now_playing: b
             return errs;
         }
         // First, whatever is still pending
-        let mut queue: Vec<Pending> = fs::read_to_string(queue_file())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let mut queue: Vec<Pending> = fs::read_to_string(queue_file()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         queue.push(Pending { track, lastfm: use_lf, lb: use_lb });
         let mut left = Vec::new();
         let mut errs = Vec::new();
@@ -407,11 +398,7 @@ pub async fn lastfm_get(key: String, method: String, params: BTreeMap<String, St
         let what: Vec<&str> = ["artist", "album", "track", "user"].iter().filter_map(|k| params.get(*k).map(String::as_str)).collect();
         let file = dir.join(format!("{}.json", crate::file_name(&format!("{method} - {}", what.join(" - ")))));
         if cache_days > 0 {
-            let fresh = fs::metadata(&file)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .is_some_and(|age| age < Duration::from_secs(cache_days as u64 * 86400));
+            let fresh = fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < Duration::from_secs(cache_days as u64 * 86400));
             if fresh {
                 if let Some(v) = fs::read_to_string(&file).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) {
                     return Ok(v);

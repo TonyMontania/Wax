@@ -725,3 +725,47 @@ code { background: #282828; padding: 1px 6px; border-radius: 3px; font-size: 12p
 .sb-fkids .sb-item .sbi { margin-right: 10px; }
 
 .upd-notes { max-height: 50vh; overflow-y: auto; font-size: 14px; line-height: 1.6; color: #ddd; background: #202020; border-radius: 6px; padding: 14px 16px; }
+
+/* ───────────── Listen Together ───────────── */
+.sb-live { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--green); }
+.live-tag { display: inline-block; vertical-align: middle; margin-left: 10px; padding: 3px 9px; border-radius: 500px; background: var(--green); color: #fff;
+  font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.party-intro { max-width: 720px; margin-bottom: 20px; }
+.party-name { display: flex; align-items: center; gap: 12px; color: var(--mut); font-size: 13px; margin-bottom: 22px; }
+.party-name .txt { width: 240px; }
+.party-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 28px; }
+.party-card { background: #202020; border-radius: 6px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.party-card h2 { font-size: 20px; font-weight: 700; }
+.party-card .sub { margin: 0; }
+.party-card .sub .ic { display: inline; vertical-align: -2px; }
+.party-card .sub .spin { display: inline-block; vertical-align: -2px; margin-right: 6px; }
+.party-card .dim { opacity: .7; font-size: 12px; }
+.party-ic { color: var(--green); }
+.party-code-in { width: 100%; font-size: 16px; letter-spacing: .08em; text-transform: uppercase; }
+.party-l { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--mut); margin-top: 4px; }
+.party-code { display: flex; align-items: center; gap: 10px; background: #2a2a2a; border-radius: 4px; padding: 10px 14px; }
+.party-code span { flex: 1; font: 700 20px/1.2 Consolas, "SF Mono", monospace; letter-spacing: .06em; user-select: text; }
+.party-quality { display: flex; align-items: center; gap: 12px; color: var(--mut); font-size: 13px; }
+.party-code .ib + .ib { margin-left: -4px; }
+.party-people { display: flex; flex-direction: column; gap: 8px; }
+.party-person { display: flex; align-items: center; gap: 10px; color: #fff; }
+.party-person .ic { color: var(--mut); }
+.tag { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--mut); border: 1px solid #555; border-radius: 3px; padding: 1px 5px; }
+.party-np { display: flex; gap: 28px; align-items: flex-end; margin-bottom: 30px; }
+.party-cover { width: 220px; height: 220px; flex: none; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+.party-np-t { min-width: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.party-np-t h2 { font-size: 32px; font-weight: 700; line-height: 1.15; }
+.party-status { color: var(--green); font-size: 13px; min-height: 18px; margin: 6px 0 10px; }
+.party-list { display: flex; flex-direction: column; }
+.party-song { display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.party-song .t { flex: 1; min-width: 0; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.party-song .s { color: var(--mut); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.party-song .d { color: var(--mut); font-size: 12px; }
+.party-from { color: var(--green); }
+.party-search { margin-bottom: 12px; width: 360px; max-width: 100%; }
+#party-hits, #party-mine-hits { max-width: 760px; margin-bottom: 30px; }
+.party-hint { margin: -6px 0 12px; }
+/* A guest follows the host: these controls belong to the host */
+.party-guest #b-next, .party-guest #b-prev, .party-guest #b-shuffle, .party-guest #b-repeat, .party-guest .np-fav { opacity: .25; pointer-events: none; }
+.party-guest #seek { pointer-events: none; }
+@media (max-width: 700px) { .party-np { flex-direction: column; align-items: flex-start; } }

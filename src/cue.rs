@@ -168,11 +168,7 @@ pub fn read_sheet(cue: &Path, added: u64, size: u64) -> (Vec<Track>, Vec<PathBuf
             path: format!("{}#{:02}", cue.to_string_lossy(), t.no),
             title: if t.title.is_empty() { format!("Track {}", t.no) } else { t.title.clone() },
             artist: if performer.is_empty() { "Unknown Artist".into() } else { performer },
-            album: if sh.title.is_empty() {
-                cue.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
-            } else {
-                sh.title.clone()
-            },
+            album: if sh.title.is_empty() { cue.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default() } else { sh.title.clone() },
             album_artist: sh.performer.clone(),
             artists: Vec::new(),
             track_no: t.no,
@@ -195,7 +191,7 @@ mod tests {
     /// A real sheet next to a real file: two tracks, the file itself hidden by the scan.
     #[test]
     fn sheet_with_audio() {
-        let Ok(src) = std::env::var("WAX_TEST_AUDIO") else { return };
+        let src = crate::test_audio_dir();
         let dir = std::env::temp_dir().join("wax_cue_test");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();

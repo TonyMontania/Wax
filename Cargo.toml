@@ -1,6 +1,6 @@
 [package]
 name = "wax"
-version = "1.0.0"
+version = "1.1.0"
 description = "Local music player with the classic Spotify interface"
 edition = "2021"
 
@@ -35,6 +35,12 @@ trash = "5"
 # In-app updates (portable zip, checksums)
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
+# Updates are signed by the maintainer (examples/sign_release.rs) and checked before installing
+ed25519-dalek = "2"
+# Listen Together: the host serves its songs, the router opens the port (UPnP)
+tiny_http = "0.12"
+igd-next = "0.16"
+getrandom = "0.2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 

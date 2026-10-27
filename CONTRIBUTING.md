@@ -1,6 +1,6 @@
 # Contributing to Wax
 
-Bug reports and ideas are welcome in [issues](https://github.com/TonyMontania/Wax/issues). For code, open a pull request against `main`; the Build workflow compiles it for Windows, macOS and Linux.
+Bug reports and ideas are welcome in [issues](https://github.com/TonyMontania/Wax/issues). For code, open a pull request against `main`: the Check workflow runs formatting, lints, tests and the interface checks, and the Build workflow compiles it for Windows, macOS and Linux (x64 and ARM). Releases: see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Running locally
 
@@ -22,17 +22,21 @@ The interface is plain HTML/CSS/JS in `ui/` (no build step). To work on it in a 
 python -m http.server 5174   # then http://localhost:5174/dev/preview.html
 ```
 
-## Tests
+## Tests and checks
 
 ```bash
-cargo test --release
+cargo test                                  # the audio tests use the 3-second files in tests/fixtures
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+npx eslint@10 ui                            # the interface scripts (eslint.config.mjs)
 ```
 
-Some tests need real files or the network, and are skipped unless asked for:
+Some tests need the network or the real system, and are skipped unless asked for:
 
 | Variable | Tests |
 | --- | --- |
-| `WAX_TEST_AUDIO=<folder with a.flac b.mp3 c.m4a d.opus>` | audio engine, CUE, MP3 conversion |
+| `WAX_TEST_AUDIO=<folder>` | the audio tests with other files (a.flac b.mp3 c.m4a d.opus) |
+| `WAX_TEST_PARTY_SERVE=1` | hosts a test tone for a while, to try the Listen Together web page by hand |
 | `WAX_NET=1` | Deezer, MusicBrainz, Last.fm, AutoEQ, update check |
 | `WAX_TEST_OUTPUT=1` (+ `WAX_TEST_EXCLUSIVE=1`) | opening the real audio outputs |
 | `WAX_TEST_AUTOSTART=1` | "start with Windows" registry entry (added and removed) |
@@ -51,12 +55,15 @@ Some tests need real files or the network, and are skipped unless asked for:
 | `src/discover.rs` | New releases, credits, lyrics search, AutoEQ, Spotify CSV |
 | `src/desktop.rs` | Tray, taskbar buttons, mini player, notifications, global shortcuts, full screen, autostart |
 | `src/discord.rs` | Discord status |
-| `src/updater.rs` | Updates from GitHub Releases |
-| `ui/` | Interface: `app.js`, `extras.js`, `more.js`, `engine.js` (engine bridge), `mini.html`, `osd.html` |
+| `src/updater.rs` | Updates from GitHub Releases (checked against the maintainer's signature) |
+| `src/party.rs`, `src/party.html` | Listen Together: the host's server, joining, the web listener page |
+| `ui/` | Interface: `app.js`, `extras.js`, `party.js`, `more.js`, `engine.js` (engine bridge), `mini.html`, `osd.html`. Plain scripts sharing one scope; buttons with `data-action` are registered with `addActions({...})` |
+| `examples/sign_release.rs` | Signs release files for the updater |
+| `tests/fixtures/` | Short test tones for the audio tests |
 | `packaging/` | Files that go into the portable zip |
 | `dev/` | Interface preview and the icon generator (`make_icon.py`) |
 
 ## Style
 
-- Rust: `cargo fmt`-like formatting, small focused functions, comments that explain *why*.
+- Rust: `cargo fmt` (wide lines, see `rustfmt.toml`), no clippy warnings, small focused functions, comments that explain *why*.
 - UI text in English, short and plain.

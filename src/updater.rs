@@ -4,7 +4,9 @@
 //!   macOS              → the new Wax.app replaces the old one where it is
 //!   AppImage (Linux)   → the new .AppImage replaces the old file
 //!   .deb / .rpm        → the package is downloaded and opened with the system installer
-//! Downloads are checked against the SHA-256 GitHub publishes for each release file.
+//! Downloads are checked twice: against the SHA-256 GitHub publishes for each release file, and
+//! against the maintainer's signature (<file>.sig, made with examples/sign_release.rs), so even
+//! someone who got into the GitHub account couldn't push a fake update.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -18,6 +20,8 @@ use tauri::{AppHandle, Emitter};
 use crate::{app_dir, http, install_kind, Install};
 
 pub const REPO: &str = "TonyMontania/Wax";
+/// The maintainer's public key; the private one never leaves their computer
+const UPDATE_KEY: &str = "f7b3488bd2ae70e8ad5b9221e3ae5f4906bf7ca47aaa4d0f5f90d2dced7e86c5";
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -60,11 +64,17 @@ fn latest_release() -> Result<Option<Value>, String> {
     resp.body_mut().read_json().map(Some).map_err(|e| e.to_string())
 }
 
-/// The release file that fits this system and this kind of install.
+/// ARM builds have "arm64" or "aarch64" in their names; the others are for x64 (macOS: universal)
+fn fits_cpu(name: &str, arm: bool) -> bool {
+    name.contains("universal") || (name.contains("arm64") || name.contains("aarch64")) == arm
+}
+
+/// The release file that fits this system, its processor and this kind of install.
 fn pick_asset(rel: &Value) -> Option<Value> {
     let assets = rel["assets"].as_array()?;
+    let arm = cfg!(target_arch = "aarch64");
     let name = |a: &Value| a["name"].as_str().unwrap_or("").to_lowercase();
-    let find = |f: &dyn Fn(&str) -> bool| assets.iter().find(|a| f(&name(a))).cloned();
+    let find = |f: &dyn Fn(&str) -> bool| assets.iter().find(|a| f(&name(a)) && fits_cpu(&name(a), arm)).cloned();
     match install_kind() {
         Install::Portable if cfg!(windows) => find(&|n| n.contains("portable") && n.ends_with(".zip")),
         Install::Portable => None,
@@ -83,7 +93,16 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let current = env!("CARGO_PKG_VERSION").to_string();
         let Some(rel) = latest_release()? else {
-            return Ok(UpdateInfo { latest: current.clone(), current, newer: false, notes: String::new(), page: format!("https://github.com/{REPO}/releases"), asset: None, size: 0, install: install_kind().name().into() });
+            return Ok(UpdateInfo {
+                latest: current.clone(),
+                current,
+                newer: false,
+                notes: String::new(),
+                page: format!("https://github.com/{REPO}/releases"),
+                asset: None,
+                size: 0,
+                install: install_kind().name().into(),
+            });
         };
         let latest = rel["tag_name"].as_str().unwrap_or("").trim_start_matches(['v', 'V']).to_string();
         let asset = pick_asset(&rel);
@@ -142,6 +161,41 @@ fn verify(asset: &Value, hash: &str) -> Result<(), String> {
     }
 }
 
+fn unhex(s: &str) -> Vec<u8> {
+    (0..s.len() / 2).filter_map(|i| s.get(i * 2..i * 2 + 2).and_then(|h| u8::from_str_radix(h, 16).ok())).collect()
+}
+
+/// Checks the maintainer's signature of the file (its name and SHA-256)
+fn verify_signature(name: &str, hash: &str, sig_hex: &str) -> Result<(), String> {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let bad = || "This update isn't signed by Wax's maintainer, so it wasn't installed.".to_string();
+    let key: [u8; 32] = unhex(UPDATE_KEY).try_into().map_err(|_| bad())?;
+    let sig: [u8; 64] = unhex(sig_hex.trim()).try_into().map_err(|_| bad())?;
+    let key = VerifyingKey::from_bytes(&key).map_err(|_| bad())?;
+    key.verify(
+        format!(
+            "{name}
+{}",
+            hash.to_lowercase()
+        )
+        .as_bytes(),
+        &Signature::from_bytes(&sig),
+    )
+    .map_err(|_| bad())
+}
+
+/// The signature file published next to the release file
+fn signature_of(rel: &Value, name: &str) -> Result<String, String> {
+    let sig = rel["assets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|a| a["name"].as_str() == Some(&format!("{name}.sig")))
+        .and_then(|a| a["browser_download_url"].as_str())
+        .ok_or("This update isn't signed by Wax's maintainer, so it wasn't installed.")?;
+    http().get(sig).call().map_err(|e| format!("Download: {e}"))?.body_mut().read_to_string().map_err(|e| e.to_string())
+}
+
 /// Runs a script after Wax closes (to replace files that are in use), without a console window.
 fn run_detached(script: &str) -> Result<(), String> {
     #[cfg(windows)]
@@ -177,8 +231,10 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         let file = tmp.join(&name);
+        let sig = signature_of(&rel, &name)?;
         let hash = download(&app, &url, total, &file)?;
         verify(&asset, &hash)?;
+        verify_signature(&name, &hash, &sig)?;
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let dir = app_dir();
         match install_kind() {
@@ -186,9 +242,7 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
                 // The zip holds Wax/Wax.exe: take the exe and swap it (a running exe can be renamed)
                 let zf = fs::File::open(&file).map_err(|e| e.to_string())?;
                 let mut zip = zip::ZipArchive::new(zf).map_err(|e| e.to_string())?;
-                let idx = (0..zip.len())
-                    .find(|&i| zip.by_index(i).map(|f| f.name().to_lowercase().ends_with("wax.exe")).unwrap_or(false))
-                    .ok_or("The zip has no Wax.exe")?;
+                let idx = (0..zip.len()).find(|&i| zip.by_index(i).map(|f| f.name().to_lowercase().ends_with("wax.exe")).unwrap_or(false)).ok_or("The zip has no Wax.exe")?;
                 let new = exe.with_extension("exe.new");
                 {
                     let mut src = zip.by_index(idx).map_err(|e| e.to_string())?;
@@ -218,7 +272,12 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
                 if !out.status.success() {
                     return Err(String::from_utf8_lossy(&out.stderr).into());
                 }
-                let new = fs::read_dir(&tmp).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "app")).ok_or("The download has no Wax.app")?;
+                let new = fs::read_dir(&tmp)
+                    .map_err(|e| e.to_string())?
+                    .flatten()
+                    .map(|e| e.path())
+                    .find(|p| p.extension().is_some_and(|x| x == "app"))
+                    .ok_or("The download has no Wax.app")?;
                 let q = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
                 let old = PathBuf::from(format!("{}.old", bundle.to_string_lossy()));
                 let script = format!(
@@ -291,6 +350,22 @@ mod tests {
         assert!(verify(&a, "abc123").is_ok());
         assert!(verify(&a, "ffff").is_err());
         assert!(verify(&serde_json::json!({}), "ffff").is_ok());
+    }
+
+    #[test]
+    fn signatures() {
+        // Signed with the release key (examples/sign_release.rs): a 3-byte file "abc"
+        let name = "Wax_9.9.9_x64-setup.exe";
+        let hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let sig = "36168ceb2949db1a5f553ad44fa7bc303cf4c55146bb342cc610cff3ebf58946d89c6b798871b47d63ce10b649618b320fc4adcbbbd3ef4e4beed80889512e03";
+        assert!(verify_signature(name, hash, sig).is_ok());
+        assert!(verify_signature("Wax_1.0.0_x64-setup.exe", hash, sig).is_err(), "a signature can't be moved to another file");
+        assert!(verify_signature(name, &hash.replace('a', "b"), sig).is_err(), "nor to other contents");
+        assert!(verify_signature(name, hash, &"00".repeat(64)).is_err());
+        assert!(verify_signature(name, hash, "nonsense").is_err());
+        assert!(fits_cpu("wax_1.1.0_x64-setup.exe", false) && !fits_cpu("wax_1.1.0_x64-setup.exe", true));
+        assert!(fits_cpu("wax_1.1.0_arm64-setup.exe", true) && !fits_cpu("wax_1.1.0_arm64-setup.exe", false));
+        assert!(fits_cpu("wax_1.1.0_aarch64.appimage", true) && fits_cpu("wax_1.1.0_universal.app.tar.gz", true));
     }
 
     #[test]

@@ -1,0 +1,49 @@
+# Every push and pull request: formatting, lints, tests and the interface scripts.
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libasound2-dev libdbus-1-dev
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Lints
+        run: cargo clippy --all-targets -- -D warnings
+
+      # The audio tests use the short files in tests/fixtures
+      - name: Tests
+        run: cargo test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Interface scripts
+        run: npx --yes eslint@10 ui --max-warnings 0

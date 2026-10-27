@@ -1,0 +1,3 @@
+# The code is written wide: long, readable lines rather than many short ones
+max_width = 180
+use_small_heuristics = "Max"

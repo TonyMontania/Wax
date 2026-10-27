@@ -607,8 +607,9 @@ const VIEWS = {
     const cur = P.current >= 0 ? [P.current] : [];
     const rest = P.order.slice(P.pos + 1).map(o => P.ctx[o]);
     return `<div class="page-h"><h1>Play Queue</h1></div>
-      ${secHead('Now playing')}${cur.length ? trackTable('q-now', cur, 'short') : '<p class="sub" style="color:var(--mut)">Nothing for now.</p>'}
+      ${secHead('Now playing')}${cur.length ? trackTable('q-now', cur, 'short') : Party.sharedNow != null ? partySharedNowHtml() : '<p class="sub" style="color:var(--mut)">Nothing for now.</p>'}
       ${P.upNext.length ? `<div class="sec-h"><h2>Next in queue</h2><a class="more" data-action="clear-queue">Clear</a></div>${trackTable('q-next', P.upNext, 'short')}` : ''}
+      ${Party.sharedQ.length ? partySharedQueueHtml() : ''}
       ${rest.length ? secHead('Next up') + trackTable('q-ctx', rest, 'short') : ''}`;
   },
 };
@@ -617,6 +618,9 @@ const VIEWS = {
 const audio = new WaxAudio();
 const Sleep = { at: 0, endOfTrack: false, tick: 0 };   // sleep timer (see extras.js)
 const P = { ctx: [], order: [], pos: -1, upNext: [], current: -1, ctxRoute: null, autoDJ: false };
+// Listen Together (party.js): hosting a session, or listening to someone else's
+// shared: songs guests sent (id → { song, path }), sharedQ: their turn in the queue, sharedNow: the one playing
+const Party = { host: null, guest: null, shared: new Map(), sharedQ: [], sharedNow: null };
 
 function buildOrder(start) {
   const n = P.ctx.length;
@@ -628,6 +632,7 @@ function buildOrder(start) {
 
 function playList(idxs, start = 0, ctxRoute = route) {
   if (!idxs?.length) return;
+  if (Party.guest) { partyAskLeave(() => playList(idxs, start, ctxRoute), start >= 0 ? idxs[start] : -1); return; }
   P.ctx = idxs.slice(); P.ctxRoute = { ...ctxRoute }; P.autoDJ = false;
   if (start < 0) start = S.prefs.shuffle ? Math.floor(Math.random() * idxs.length) : 0;
   buildOrder(start);
@@ -640,6 +645,7 @@ function playList(idxs, start = 0, ctxRoute = route) {
 function takeNext(auto) {
   if (auto && S.prefs.repeat === 'one' && P.current >= 0) return { i: P.current, stop: false };
   if (P.upNext.length) return { i: P.upNext.shift(), stop: false };
+  if (Party.sharedQ.length) return { i: Party.sharedQ.shift(), stop: false };   // a song a guest sent ({ shared: id })
   if (!P.order.length) return { i: -1, stop: true };
   let np = P.pos + 1;
   if (np >= P.order.length && auto && S.prefs.repeat === 'off' && S.prefs.autoDJ) extendAutoDJ();
@@ -653,9 +659,9 @@ function takeNext(auto) {
 }
 // Same thing without changing the state (used to preload the engine)
 function peekNext() {
-  const snap = { pos: P.pos, order: P.order, upNext: P.upNext.slice() };
+  const snap = { pos: P.pos, order: P.order, upNext: P.upNext.slice(), sq: Party.sharedQ.slice() };
   const r = takeNext(true);
-  P.pos = snap.pos; P.order = snap.order; P.upNext = snap.upNext;
+  P.pos = snap.pos; P.order = snap.order; P.upNext = snap.upNext; Party.sharedQ = snap.sq;
   return r;
 }
 
@@ -711,10 +717,13 @@ function syncNext() {
     const t = !r.stop && r.i >= 0 && !Sleep.endOfTrack ? S.tracks[r.i] : null;
     audio.setNext(t, { gainDb: gainFor(t), crossfadeMs: t ? crossfadeFor(P.current, r.i) : 0 });
   }, 150);
+  if (Party.host) partyHostSync();
 }
 
 function playTrack(i, autoplay = true, opts = {}) {
+  if (i && typeof i === 'object') { partyPlayShared(i, autoplay); return; }
   const t = S.tracks[i]; if (!t) return;
+  Party.sharedNow = null;
   finishListen();
   P.current = i;
   if (!opts.engineLoaded) audio.load(t, { autoplay, startAt: opts.startAt || 0, gainDb: gainFor(t) });
@@ -735,6 +744,7 @@ function playTrack(i, autoplay = true, opts = {}) {
 }
 
 function next(auto = false) {
+  if (Party.guest) return;
   const r = takeNext(auto);
   if (r.i < 0) return;
   const sleeping = auto && Sleep.endOfTrack;
@@ -743,11 +753,13 @@ function next(auto = false) {
   refreshQueueView();
 }
 function prev() {
+  if (Party.guest) return;
   if (audio.currentTime > 3 || P.pos <= 0) { audio.currentTime = 0; return; }
   P.pos--; playTrack(P.ctx[P.order[P.pos]]); refreshQueueView();
 }
 function togglePlay() {
-  if (P.current < 0) {
+  if (Party.guest) { partyToggleListen(); return; }
+  if (P.current < 0 && Party.sharedNow == null) {
     if (S.tracks.length) playList(lists.get([...lists.keys()][0]) || S.tracks.map((_, i) => i), -1);
     return;
   }
@@ -857,6 +869,7 @@ function miniState() {
 const accent = () => S.prefs.accent || '#1db954';
 const npTitle = $('#np-title'), npArtist = $('#np-artist'), npCover = $('#np-cover'), sbCover = $('#sb-cover-img');
 function updateNowPlaying() {
+  if (P.current < 0 && (Party.guest || Party.sharedNow != null) && partyNowPlaying()) return;
   const t = S.tracks[P.current];
   document.body.classList.toggle('empty-np', !t);
   if (!t) { npTitle.textContent = npArtist.innerHTML = ''; return; }
@@ -893,6 +906,7 @@ function syncPlayButton() {
   invoke('taskbar_playing', { playing: !paused }).catch(() => {});
   miniState();
   discordSync();
+  if (Party.host) partyHostSync();
 }
 audio.addEventListener('play', syncPlayButton);
 audio.addEventListener('pause', syncPlayButton);
@@ -900,7 +914,7 @@ audio.addEventListener('ended', () => next(true));
 let errorStreak = 0;
 audio.addEventListener('playing', () => { errorStreak = 0; });
 audio.addEventListener('error', () => {
-  if (P.current < 0) return;
+  if (P.current < 0) { if (Party.sharedNow != null && ++errorStreak < 5) setTimeout(() => next(true), 800); return; }
   toast(`Couldn't play "${S.tracks[P.current]?.title}"`);
   if (++errorStreak < 5) setTimeout(() => next(true), 800);   // don't skip forever if everything fails
 });
@@ -924,8 +938,8 @@ function makeSlider(el, { onInput, onCommit }) {
 
 const tCur = $('#t-cur'), tDur = $('#t-dur');
 const seek = makeSlider($('#seek'), {
-  onInput: v => { tCur.textContent = fmt(v * (audio.duration || 0)); },
-  onCommit: v => { if (audio.duration) audio.currentTime = v * audio.duration; },
+  onInput: v => { if (!Party.guest) tCur.textContent = fmt(v * (audio.duration || 0)); },
+  onCommit: v => { if (audio.duration && !Party.guest) audio.currentTime = v * audio.duration; },
 });
 let lastMini = 0;
 audio.addEventListener('timeupdate', () => {
@@ -939,7 +953,7 @@ audio.addEventListener('timeupdate', () => {
   tCur.textContent = fmt(pos);
   tDur.textContent = fmt(d);
 });
-audio.addEventListener('seeked', () => { LS.last = audio.currentTime || 0; });
+audio.addEventListener('seeked', () => { LS.last = audio.currentTime || 0; if (Party.host) partyHostSync(); });
 audio.addEventListener('loadedmetadata', () => { tDur.textContent = fmt(audio.duration); });
 
 const bMute = $('#b-mute');
@@ -1230,6 +1244,7 @@ function trackMenu(x, y, idxs) {
   const items = [
     { label: 'Play', act: () => playList(idxs, 0) },
     { label: 'Add to queue', act: () => { P.upNext.push(...idxs); toast(many ? `${idxs.length} songs added to the queue` : 'Added to the queue'); refreshQueueView(); syncNext(); } },
+    ...(Party.guest ? [partyShareItem(idxs)] : []),
     { label: allFav ? 'Remove from Your Favorites' : 'Add to Your Favorites', act: () => toggleFav(idxs) },
     '-',
     t._names.length > 1 && !many
@@ -1259,6 +1274,7 @@ function albumMenu(x, y, key) {
   openMenu(x, y, [
     { label: 'Play', act: () => playAlbum(key) },
     { label: 'Add to queue', act: () => { P.upNext.push(...a.tracks); toast('Album added to the queue'); } },
+    ...(Party.guest ? [partyShareItem(a.tracks)] : []),
     '-',
     { label: 'Go to artist', act: () => go({ view: 'artist', arg: a.owner || a.artist }) },
     { label: 'Add to playlist', sub: playlistSubmenu(a.tracks) },
@@ -1417,6 +1433,10 @@ document.addEventListener('click', e => {
     return;
   }
 });
+
+/* Buttons with data-action="name": the other scripts add theirs here (name → fn(arg)) */
+const ACTIONS = new Map();
+const addActions = list => { for (const [name, fn] of Object.entries(list)) ACTIONS.set(name, fn); };
 
 function runAction(a, arg) {
   if (a === 'add-folder') addFolder();
@@ -1584,10 +1604,17 @@ function toggleFav(idxs) {
 
 /* ───────────── Artist photos ───────────── */
 const artistP = new Map();
+// Album and song titles of an artist: tells your artist apart from others with the same name online
+function artistTitles(name) {
+  const ar = S.artistMap.get(name); if (!ar) return [];
+  const out = new Set();
+  for (const i of ar.tracks) { const t = S.tracks[i]; if (t.album) out.add(t.album); if (t.title) out.add(t.title); if (out.size >= 400) break; }
+  return [...out];
+}
 function artistImage(name, big = false) {
   const k = name + (big ? '#lg' : '#sm');
   if (!artistP.has(k)) {
-    artistP.set(k, invoke('get_artist_image', { name, dir: S.artistDir.get(name) || null, size: big ? 640 : 300, online: S.prefs.fetchArtistImages !== false })
+    artistP.set(k, invoke('get_artist_image', { name, dir: S.artistDir.get(name) || null, size: big ? 640 : 300, online: S.prefs.fetchArtistImages !== false, titles: artistTitles(name) })
       .then(c => c ? { url: imgUrl(c.path), path: c.path, color: c.color } : null).catch(() => null));
   }
   return artistP.get(k);
@@ -1945,7 +1972,7 @@ async function settingsAction(a, arg) {
     case 'import-m3u': importM3U(); return;
     case 'organize-all': organize(S.tracks.map((_, i) => i)); return;
     case 'organize-pattern': patternEditor(p.organizePattern || DEFAULT_PATTERN, () => rerender()); return;
-    default: extraAction(a, arg);
+    default: ACTIONS.has(a) ? ACTIONS.get(a)(arg) : extraAction(a, arg);
   }
 }
 TAURI.event.listen('loudness-progress', async e => {
@@ -2298,6 +2325,8 @@ const extrasLoaded = new Promise(r => { extrasReady = r; });
   try { S.tracks = await invoke('load_library', { folders: S.prefs.folders }); } catch (e) { console.warn(e); }
   buildIndex();
   await migrateCacheNames();
+  // Artist photos from before Wax told namesakes apart (Ghost the band ≠ Ghost the rapper)
+  if (S.prefs.artistMatch !== 1) { await invoke('forget_artist_photos').catch(() => {}); S.prefs.artistMatch = 1; savePrefs(); }
   renderSidebar();
   setVolume(S.prefs.volume, S.prefs.muted);
   syncModeButtons();

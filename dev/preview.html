@@ -72,6 +72,14 @@
     autoeq_profile: () => ({ preamp: -6.3, filters: [{ kind: 'LSC', fc: 105, gain: 6.5, q: 0.7 }, { kind: 'PK', fc: 125, gain: -2.7, q: 0.55 }] }),
     pick_csv_files: () => [{ name: 'My Spotify mix', text: 'Track URI,Track Name,Artist Name(s),Album Name,Track Duration (ms)\n' + tracks.slice(0, 6).map(t => `x,"${t.title}","${t.artist}","${t.album}",${t.duration * 1000}`).join('\n') + '\nx,Missing Song,Nobody,Nothing,200000' }],
     audio_devices: () => ['Speakers (Realtek(R) Audio)', 'Headphones (USB DAC)'], audio_output: ({ device, exclusive }) => ({ device: device || 'Speakers (Realtek(R) Audio)', rate: 48000, exclusive, format: exclusive ? '32-bit' : '' }), audio_crossfeed: () => {},
+    party_host: () => ({ port: 47800, code: 'K7QM2D-XHPRTA-9WEN4B', link: 'http://192.168.1.37:47800/?k=a1b2c3d4e5', ip: '192.168.1.37', ipv6Code: 'FAAGBA-4S6RQA-AAAAAA-AAAAAA-AA4X5C-D2U4Y', ipv6Link: 'http://[2800:810:4e2:1a7::5c3]:47800/?k=a1b2c3d4e5' }),
+    party_update: () => {}, party_catalog: () => {}, party_stop: () => {}, party_leave: () => {}, party_clock: () => ({ offset: 0, rtt: 4 }),
+    party_join: () => { const song = (t, id) => ({ id, title: t.title, artist: t.artist, album: t.album, duration: t.duration, ext: 'flac', startMs: 0, endMs: 0 });
+      return { seq: 2, at: Date.now() - 42000, now: Date.now(), ended: false, name: 'Tony', track: song(tracks[5], 5), posMs: 0, paused: false,
+        queue: tracks.slice(6, 12).map((t, i) => song(t, 6 + i)), allowRequests: true, guests: [{ name: 'Ana', web: false }, { name: 'Leo', web: true }] }; },
+    party_poll: () => new Promise(() => {}), party_fetch: () => 'C:/Wax/data/party/5.flac', party_progress: () => 1, party_cover: () => null,
+    party_search: ({ query }) => tracks.filter(t => (t.title + ' ' + t.artist).toLowerCase().includes(query.toLowerCase())).slice(0, 8).map(t => ({ id: tracks.indexOf(t), title: t.title, artist: t.artist, album: t.album, duration: t.duration })),
+    party_request: () => {}, party_share: async () => { await new Promise(r => setTimeout(r, 300)); return 1000000000; }, forget_artist_photos: () => {},
     organize_files: ({ moves }) => ({ moved: moves.map(m => [m.from, m.to]), errors: [] }),
     set_shortcuts: () => [], watch_folders: () => {}, media_update: () => {}, tray_tooltip: () => {}, taskbar_playing: () => {}, osd_show: () => {}, append_history: () => {},
     get_lyrics: async () => { await new Promise(r => setTimeout(r, 400)); return { found: true, source: 'LRCLIB', synced: Array.from({ length: 40 }, (_, i) => `[${String(Math.floor(i * 4 / 60)).padStart(2, '0')}:${String(i * 4 % 60).padStart(2, '0')}.00]${words[i % words.length]} ${words[(i * 5) % words.length].toLowerCase()} in the ${words[(i * 3) % words.length].toLowerCase()}`).join('\n') }; },
@@ -80,7 +88,8 @@
   window.__TAURI__ = {
     core: { invoke: async (c, a) => handlers[c]?.(a || {}), convertFileSrc: p => p.startsWith('data:') ? p : 'about:blank' },
     window: { getCurrentWindow: () => ({ minimize: noop, toggleMaximize: noop, close: noop, isMaximized: async () => false, onResized: noop }) },
-    event: { listen: async () => () => {}, emit: async () => {} },
+    // Events go to the listeners in the page, so tests can fake what Rust sends
+    event: (() => { const L = {}; return { listen: async (n, f) => { (L[n] ||= []).push(f); return () => {}; }, emit: async (n, payload) => (L[n] || []).forEach(f => f({ payload })) }; })(),
   };
 })();
 </script>
@@ -93,7 +102,7 @@
       const s = document.createElement('script'); s.src = '../ui/app.js?' + Date.now();
       s.onload = () => {
         const x = document.createElement('script'); x.src = '../ui/extras.js?' + Date.now();
-        x.onload = () => { const m = document.createElement('script'); m.src = '../ui/more.js?' + Date.now(); document.body.appendChild(m); };
+        x.onload = () => { const y = document.createElement('script'); y.src = '../ui/party.js?' + Date.now(); y.onload = () => { const m = document.createElement('script'); m.src = '../ui/more.js?' + Date.now(); document.body.appendChild(m); }; document.body.appendChild(y); };
         document.body.appendChild(x);
       };
       document.body.appendChild(s);

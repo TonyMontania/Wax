@@ -1,7 +1,6 @@
 //! Audio engine commands, loudness analysis and Windows media controls.
 
 use std::collections::HashMap;
-use std::ffi::c_void;
 use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -93,10 +92,7 @@ fn loudness_file() -> std::path::PathBuf {
 }
 
 fn read_loudness() -> HashMap<String, Loudness> {
-    fs::read_to_string(loudness_file())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    fs::read_to_string(loudness_file()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -146,11 +142,11 @@ pub fn start_loudness_scan(app: AppHandle, state: State<LoudnessScan>, paths: Ve
                     if let Ok(l) = res {
                         let mut r = results.lock().unwrap();
                         r.insert(p.clone(), l);
-                        if n % 25 == 0 {
+                        if n.is_multiple_of(25) {
                             save(&r);
                         }
                     }
-                    if n % 5 == 0 || n == total {
+                    if n.is_multiple_of(5) || n == total {
                         let _ = app.emit("loudness-progress", ScanProgress { done: n, total, finished: false });
                     }
                 });
@@ -158,10 +154,7 @@ pub fn start_loudness_scan(app: AppHandle, state: State<LoudnessScan>, paths: Ve
         }
         save(&results.lock().unwrap());
         running.store(false, Ordering::SeqCst);
-        let _ = app.emit(
-            "loudness-progress",
-            ScanProgress { done: done.load(Ordering::Relaxed), total, finished: true },
-        );
+        let _ = app.emit("loudness-progress", ScanProgress { done: done.load(Ordering::Relaxed), total, finished: true });
     });
     true
 }
@@ -172,7 +165,7 @@ pub fn stop_loudness_scan(state: State<LoudnessScan>) {
 }
 
 /* ───────────── Windows media controls (SMTC) ─────────────
-   Keyboard media keys and the Windows media panel. */
+Keyboard media keys and the Windows media panel. */
 
 pub struct SendControls(pub MediaControls);
 // SMTC WinRT objects are "agile": they can be used from any thread.
@@ -183,9 +176,9 @@ pub struct Media(pub Mutex<Option<SendControls>>);
 pub fn init_media(app: &AppHandle) -> Option<SendControls> {
     let win = app.get_webview_window("main")?;
     #[cfg(windows)]
-    let hwnd = Some(win.hwnd().ok()?.0 as *mut c_void);
+    let hwnd = Some(win.hwnd().ok()?.0);
     #[cfg(not(windows))]
-    let hwnd: Option<*mut c_void> = {
+    let hwnd: Option<*mut std::ffi::c_void> = {
         let _ = &win;
         None
     };
@@ -214,17 +207,7 @@ pub fn init_media(app: &AppHandle) -> Option<SendControls> {
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn media_update(
-    state: State<Media>,
-    title: String,
-    artist: String,
-    album: String,
-    cover: Option<String>,
-    duration_ms: u64,
-    playing: bool,
-    pos_ms: u64,
-    meta: bool,
-) {
+pub fn media_update(state: State<Media>, title: String, artist: String, album: String, cover: Option<String>, duration_ms: u64, playing: bool, pos_ms: u64, meta: bool) {
     let Ok(mut g) = state.0.lock() else { return };
     let Some(c) = g.as_mut() else { return };
     if meta {

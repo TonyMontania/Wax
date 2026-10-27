@@ -1,0 +1,36 @@
+name: Something doesn't work
+description: A bug, a crash, something that looks or sounds wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you got instead. Screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Wax version
+      description: Settings → About
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - Windows (installed)
+        - Windows (portable)
+        - macOS
+        - Linux (AppImage)
+        - Linux (.deb / .rpm)
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: The files involved (if any)
+      description: Format (FLAC, MP3, M4A…), and whether it happens with every file or only some.

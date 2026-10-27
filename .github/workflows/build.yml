@@ -1,5 +1,6 @@
-# Builds Wax for Windows, macOS and Linux. It only builds: the files are kept as artifacts of the
-# run, and releases are created and uploaded by hand (gh release) from the maintainer's account.
+# Builds Wax for Windows, macOS and Linux (x64 and ARM). It only builds: the files are kept as
+# artifacts of the run, and releases are created and uploaded by hand from the maintainer's
+# account (see docs/RELEASING.md).
 name: Build
 
 on:
@@ -13,13 +14,26 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            arch: x64
             target: x86_64-pc-windows-msvc
             bundles: nsis
+            portable: win64
+          - os: windows-11-arm
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
+            portable: win-arm64
           - os: macos-latest
+            arch: universal
             target: universal-apple-darwin
             bundles: app,dmg
           - os: ubuntu-22.04
+            arch: x64
             target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+          - os: ubuntu-22.04-arm
+            arch: arm64
+            target: aarch64-unknown-linux-gnu
             bundles: deb,rpm,appimage
     runs-on: ${{ matrix.os }}
     steps:
@@ -44,7 +58,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Build
         run: npx --yes @tauri-apps/cli@2 build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
@@ -52,7 +66,7 @@ jobs:
       - name: Collect the files
         shell: bash
         run: |
-          VER=$(node -p "require('./tauri.conf.json').version")
+          VER=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)   # the one place the version lives
           T=target/${{ matrix.target }}/release
           mkdir -p out
           case "${{ runner.os }}" in
@@ -61,7 +75,7 @@ jobs:
               mkdir -p portable/Wax
               cp $T/wax.exe portable/Wax/Wax.exe
               cp packaging/portable/README.txt portable/Wax/
-              (cd portable && 7z a -tzip ../out/Wax-portable-$VER-win64.zip Wax)
+              pwsh -NoProfile -Command "Compress-Archive -Path portable/Wax -DestinationPath out/Wax-portable-$VER-${{ matrix.portable }}.zip"
               ;;
             macOS)
               cp $T/bundle/dmg/*.dmg out/
@@ -103,6 +117,40 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wax-${{ runner.os }}
+          name: wax-${{ runner.os }}-${{ matrix.arch }}
           path: out/*
           if-no-files-found: error
+
+  # Windows code signing through SignPath (free for open source). Runs only once the
+  # SIGNPATH_ORGANIZATION_ID variable and SIGNPATH_API_TOKEN secret are set (docs/RELEASING.md).
+  sign-windows:
+    needs: build
+    if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    strategy:
+      matrix:
+        artifact: [wax-Windows-x64, wax-Windows-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the artifact
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ID=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[] | select(.name=="${{ matrix.artifact }}") | .id')
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: wax
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows
+          github-artifact-id: ${{ steps.find.outputs.id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-signed
+          path: signed/*

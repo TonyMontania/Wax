@@ -1,0 +1,11 @@
+name: An idea
+description: Something Wax could do, or do better
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What you'd like and why. If the old Spotify app did it, how it worked there.
+    validations:
+      required: true
