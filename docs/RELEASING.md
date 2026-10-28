@@ -15,11 +15,15 @@ below and opens each app for 15 seconds as a smoke test:
 
 | Artifact | Files |
 | --- | --- |
-| `wax-Windows-x64` | `Wax_<v>_x64-setup.exe`, `Wax-portable-<v>-win64.zip` |
+| `wax-Windows-x64` | `Wax_<v>_amd64-setup.exe`, `Wax-portable-<v>-win-amd64.zip` |
 | `wax-Windows-arm64` | `Wax_<v>_arm64-setup.exe`, `Wax-portable-<v>-win-arm64.zip` |
 | `wax-macOS-universal` | `Wax_<v>_universal.dmg`, `Wax_<v>_universal.app.tar.gz` |
-| `wax-Linux-x64` | `Wax_<v>_amd64.AppImage`, `Wax_<v>_amd64.deb`, `Wax-<v>-1.x86_64.rpm` |
-| `wax-Linux-arm64` | `Wax_<v>_aarch64.AppImage`, `Wax_<v>_arm64.deb`, `Wax-<v>-1.aarch64.rpm` |
+| `wax-Linux-x64` | `Wax_<v>_amd64.AppImage`, `Wax_<v>_amd64.deb`, `Wax-<v>-1.amd64.rpm` |
+| `wax-Linux-arm64` | `Wax_<v>_arm64.AppImage`, `Wax_<v>_arm64.deb`, `Wax-<v>-1.arm64.rpm` |
+
+**Keep these names.** The processor is always `amd64` or `arm64`: GitHub lists a release's files
+alphabetically and Wax 1.0.0's updater takes the first file that fits its kind of install
+without looking at the processor, so the x64 file has to come first (`amd64` < `arm64`).
 
 If Windows signing is set up (below), use the `…-signed` artifacts for Windows.
 

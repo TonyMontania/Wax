@@ -17,7 +17,7 @@ jobs:
             arch: x64
             target: x86_64-pc-windows-msvc
             bundles: nsis
-            portable: win64
+            portable: win-amd64
           - os: windows-11-arm
             arch: arm64
             target: aarch64-pc-windows-msvc
@@ -85,6 +85,12 @@ jobs:
               cp $T/bundle/deb/*.deb $T/bundle/rpm/*.rpm $T/bundle/appimage/*.AppImage out/
               ;;
           esac
+          # One name per processor everywhere: amd64 (x64) and arm64. "amd64" sorts before "arm64",
+          # and GitHub lists release files by name: Wax 1.0.0's updater takes the first match.
+          for f in out/*; do
+            n=$(basename "$f" | sed -e 's/_x64-setup/_amd64-setup/' -e 's/\.x86_64\.rpm$/.amd64.rpm/' -e 's/\.aarch64\.rpm$/.arm64.rpm/' -e 's/_aarch64\.AppImage$/_arm64.AppImage/')
+            [ "$n" != "$(basename "$f")" ] && mv "$f" "out/$n"
+          done
           ls -la out
 
       # Opens the app for a few seconds: it has to start and stay open

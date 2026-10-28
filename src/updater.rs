@@ -368,6 +368,37 @@ mod tests {
         assert!(fits_cpu("wax_1.1.0_aarch64.appimage", true) && fits_cpu("wax_1.1.0_universal.app.tar.gz", true));
     }
 
+    /// The release files' names (docs/RELEASING.md): x64 has to sort before ARM, because GitHub
+    /// lists files by name and Wax 1.0.0's updater takes the first match for its kind of install.
+    #[test]
+    fn release_names_put_x64_first() {
+        let mut names = [
+            "Wax-1.1.0-1.amd64.rpm",
+            "Wax-1.1.0-1.arm64.rpm",
+            "Wax-portable-1.1.0-win-amd64.zip",
+            "Wax-portable-1.1.0-win-arm64.zip",
+            "Wax_1.1.0_amd64-setup.exe",
+            "Wax_1.1.0_amd64.AppImage",
+            "Wax_1.1.0_amd64.deb",
+            "Wax_1.1.0_arm64-setup.exe",
+            "Wax_1.1.0_arm64.AppImage",
+            "Wax_1.1.0_arm64.deb",
+            "Wax_1.1.0_universal.app.tar.gz",
+        ];
+        names.sort();
+        let first = |f: &dyn Fn(&str) -> bool| names.iter().map(|n| n.to_lowercase()).find(|n| f(n)).unwrap();
+        for f in [
+            &|n: &str| n.contains("portable") && n.ends_with(".zip"),
+            &|n: &str| n.ends_with("-setup.exe"),
+            &|n: &str| n.ends_with(".appimage"),
+            &|n: &str| n.ends_with(".deb"),
+            &|n: &str| n.ends_with(".rpm"),
+        ] as [&dyn Fn(&str) -> bool; 5]
+        {
+            assert!(fits_cpu(&first(f), false), "1.0.0 would get {}", first(f));
+        }
+    }
+
     #[test]
     fn versions() {
         assert!(version("v1.2.10") > version("1.2.9"));
