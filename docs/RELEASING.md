@@ -38,7 +38,13 @@ themselves anymore and people would have to download Wax again by hand.
 cargo run --release --example sign_release -- sign ~/.wax/wax-release.key release/*
 ```
 
-This writes a `.sig` next to each file. Upload both the files and the `.sig` files.
+This writes `signatures.txt` (every file's signature, one per line) and a `.sig` next to each file.
+
+- **1.2.0:** upload the files, `signatures.txt` **and the `.sig` files**. Wax 1.1.0 only knows
+  the `.sig` way, and copies still on 1.1.0 must be able to update.
+- **After 1.2.0:** upload only the files and `signatures.txt` (every copy that updates passes
+  through a version that reads it). The release then lists each file once:
+  `gh release create … $(ls release/* | grep -v '\.sig$')`
 
 The matching public key is `UPDATE_KEY` in `src/updater.rs`. A new key pair
 (`… -- keygen <file>`) means changing `UPDATE_KEY`, and copies with the old key won't accept

@@ -5,7 +5,9 @@
 //!       outside the repo), the public key is printed: it goes in UPDATE_KEY in src/updater.rs
 //!
 //!   cargo run --release --example sign_release -- sign <key file> <files…>
-//!       writes <file>.sig next to each file; upload them to the release with the files
+//!       writes signatures.txt (every file's signature) next to the files, and <file>.sig for each
+//!       one; upload them to the release with the files (docs/RELEASING.md says until when the
+//!       .sig files are needed)
 //!
 //! What's signed: "<file name>\n<sha-256 of the file>", so a signature can't be moved to
 //! another file (or an older version, whose file name has another version number).
@@ -43,13 +45,25 @@ fn main() {
         Some("sign") if args.len() >= 3 => {
             let seed = unhex(fs::read_to_string(&args[1]).expect("can't read the key").trim());
             let key = SigningKey::from_bytes(&seed.try_into().expect("bad key file"));
+            let mut list = String::new();
+            let mut dir = None;
             for f in &args[2..] {
                 let p = Path::new(f);
                 let name = p.file_name().and_then(|n| n.to_str()).expect("bad file name");
+                // Signatures themselves aren't signed (a second run over release/* skips them)
+                if name.ends_with(".sig") || name == "signatures.txt" {
+                    continue;
+                }
                 let digest = hex(&Sha256::digest(fs::read(p).expect("can't read the file")));
-                let sig = key.sign(format!("{name}\n{digest}").as_bytes());
-                fs::write(format!("{f}.sig"), hex(&sig.to_bytes())).expect("can't write the signature");
+                let sig = hex(&key.sign(format!("{name}\n{digest}").as_bytes()).to_bytes());
+                fs::write(format!("{f}.sig"), &sig).expect("can't write the signature");
+                list.push_str(&format!("{sig}  {name}\n"));
+                dir.get_or_insert_with(|| p.parent().map(Path::to_path_buf).unwrap_or_default());
                 println!("signed {name}");
+            }
+            if let Some(dir) = dir {
+                fs::write(dir.join("signatures.txt"), list).expect("can't write signatures.txt");
+                println!("wrote {}", dir.join("signatures.txt").display());
             }
         }
         _ => {

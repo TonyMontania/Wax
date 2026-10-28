@@ -185,15 +185,24 @@ fn verify_signature(name: &str, hash: &str, sig_hex: &str) -> Result<(), String>
 }
 
 /// The signature file published next to the release file
+/// The signature of a release file: from signatures.txt (all of them, one per line:
+/// "<signature>  <file name>"), or else from <file>.sig (releases up to 1.2.0 have those too,
+/// for copies of 1.1.0, which only know that way)
 fn signature_of(rel: &Value, name: &str) -> Result<String, String> {
-    let sig = rel["assets"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|a| a["name"].as_str() == Some(&format!("{name}.sig")))
-        .and_then(|a| a["browser_download_url"].as_str())
-        .ok_or("This update isn't signed by Wax's maintainer, so it wasn't installed.")?;
-    http().get(sig).call().map_err(|e| format!("Download: {e}"))?.body_mut().read_to_string().map_err(|e| e.to_string())
+    let unsigned = || "This update isn't signed by Wax's maintainer, so it wasn't installed.".to_string();
+    let url =
+        |file: &str| rel["assets"].as_array().into_iter().flatten().find(|a| a["name"].as_str() == Some(file)).and_then(|a| a["browser_download_url"].as_str().map(str::to_string));
+    let get = |url: &str| http().get(url).call().map_err(|e| format!("Download: {e}"))?.body_mut().read_to_string().map_err(|e| e.to_string());
+    if let Some(list) = url(SIGNATURES) {
+        return find_signature(&get(&list)?, name).ok_or_else(unsigned);
+    }
+    get(&url(&format!("{name}.sig")).ok_or_else(unsigned)?)
+}
+
+const SIGNATURES: &str = "signatures.txt";
+
+fn find_signature(list: &str, name: &str) -> Option<String> {
+    list.lines().find_map(|l| l.split_once("  ").filter(|(_, file)| file.trim() == name).map(|(sig, _)| sig.trim().to_string()))
 }
 
 /// Runs a script after Wax closes (to replace files that are in use), without a console window.
@@ -366,6 +375,15 @@ mod tests {
         assert!(fits_cpu("wax_1.1.0_x64-setup.exe", false) && !fits_cpu("wax_1.1.0_x64-setup.exe", true));
         assert!(fits_cpu("wax_1.1.0_arm64-setup.exe", true) && !fits_cpu("wax_1.1.0_arm64-setup.exe", false));
         assert!(fits_cpu("wax_1.1.0_aarch64.appimage", true) && fits_cpu("wax_1.1.0_universal.app.tar.gz", true));
+    }
+
+    #[test]
+    fn signature_list() {
+        let list = "aa11  Wax_1.2.0_amd64-setup.exe
+bb22  Wax-portable-1.2.0-win-amd64.zip
+";
+        assert_eq!(find_signature(list, "Wax-portable-1.2.0-win-amd64.zip").as_deref(), Some("bb22"));
+        assert_eq!(find_signature(list, "Wax_1.2.0_arm64-setup.exe"), None);
     }
 
     /// The release files' names (docs/RELEASING.md): x64 has to sort before ARM, because GitHub
