@@ -1,7 +1,7 @@
 //! Lyrics: local .lrc files (LRCGET), tags, cache and LRCLIB.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::TaggedFileExt;
@@ -13,7 +13,7 @@ use crate::{data_dir, file_name, http};
 
 /* ───────────── Lyrics ─────────────
 Lookup order:
-1. `song.lrc` / `song.txt` next to the file (what LRCGET creates)
+1. `song.lrc` / `song.txt` next to the file (what LRCGET creates) or in a `Lyrics` subfolder
 2. Lyrics embedded in the tags
 3. Cache in data/lyrics
 4. LRCLIB (https://lrclib.net), the same database LRCGET uses */
@@ -57,13 +57,51 @@ fn lyrics_from_text(text: String, source: &str) -> Lyrics {
     Lyrics { synced: synced.then(|| text.clone()), plain: (!synced).then_some(text), found: true, source: source.into(), ..Default::default() }
 }
 
-fn local_lyrics(path: &Path) -> Option<Lyrics> {
+/// Names of the subfolder some people keep an album's lyrics in
+const LYRICS_DIRS: [&str; 3] = ["Lyrics", "lyrics", "LYRICS"];
+
+/// The song's lyrics files that exist: `song.lrc` / `song.txt` next to it, or in a `Lyrics`
+/// subfolder of its folder (github.com/TonyMontania/Wax/issues/3)
+pub fn sidecars(path: &Path) -> Vec<PathBuf> {
+    let (Some(dir), Some(stem)) = (path.parent(), path.file_stem()) else { return Vec::new() };
+    let mut out = Vec::new();
     for ext in ["lrc", "txt"] {
-        if let Ok(s) = fs::read_to_string(path.with_extension(ext)) {
-            if !s.trim().is_empty() {
-                return Some(lyrics_from_text(s, "Local .lrc file"));
-            }
+        let next_to = path.with_extension(ext);
+        if next_to.is_file() {
+            out.push(next_to);
         }
+        let mut name = stem.to_os_string();
+        name.push(".");
+        name.push(ext);
+        // (folder names are case-insensitive on Windows and macOS: one of these is enough there)
+        if let Some(f) = LYRICS_DIRS.iter().map(|d| dir.join(d).join(&name)).find(|f| f.is_file()) {
+            out.push(f);
+        }
+    }
+    out
+}
+
+/// Where a new .lrc goes: into the album's Lyrics subfolder if it has one, else next to the song
+pub fn lrc_target(path: &Path) -> PathBuf {
+    let (Some(dir), Some(stem)) = (path.parent(), path.file_stem()) else { return path.with_extension("lrc") };
+    match LYRICS_DIRS.iter().map(|d| dir.join(d)).find(|d| d.is_dir()) {
+        Some(sub) => {
+            let mut name = stem.to_os_string();
+            name.push(".lrc");
+            sub.join(name)
+        }
+        None => path.with_extension("lrc"),
+    }
+}
+
+/// The text of the song's lyrics file, if it has one
+pub fn read_sidecar(path: &Path) -> Option<String> {
+    sidecars(path).iter().find_map(|f| fs::read_to_string(f).ok().filter(|s| !s.trim().is_empty()))
+}
+
+fn local_lyrics(path: &Path) -> Option<Lyrics> {
+    if let Some(s) = read_sidecar(path) {
+        return Some(lyrics_from_text(s, "Local .lrc file"));
     }
     let file = Probe::open(path).map(|p| p.options(ParseOptions::new().read_cover_art(false))).and_then(|p| p.read()).ok()?;
     file.tags().iter().find_map(|t| non_empty(t.get_string(&ItemKey::Lyrics).map(str::to_string))).map(|s| lyrics_from_text(s, "File tags"))
@@ -172,7 +210,7 @@ pub async fn save_lyrics(path: String, text: String, lrc: bool, embed: bool) -> 
     tauri::async_runtime::spawn_blocking(move || {
         let p = Path::new(&path);
         if lrc {
-            fs::write(p.with_extension("lrc"), &text).map_err(|e| format!("Couldn't write the .lrc: {e}"))?;
+            fs::write(lrc_target(p), &text).map_err(|e| format!("Couldn't write the .lrc: {e}"))?;
         }
         if embed {
             embed_lyrics(p, &text)?;
@@ -181,4 +219,33 @@ pub async fn save_lyrics(path: String, text: String, lrc: bool, embed: bool) -> 
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An album keeping its lyrics in a "Lyrics" subfolder, and a single with its .lrc next to it
+    #[test]
+    fn lyrics_subfolder() {
+        let dir = std::env::temp_dir().join("wax_lyrics_dirs");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("Album/Lyrics")).unwrap();
+        fs::create_dir_all(dir.join("Singles")).unwrap();
+        let song = dir.join("Album/01 - Intro.flac");
+        let single = dir.join("Singles/Song.mp3");
+        fs::write(&song, b"").unwrap();
+        fs::write(&single, b"").unwrap();
+        fs::write(dir.join("Album/Lyrics/01 - Intro.lrc"), "[00:01.00]Hello").unwrap();
+        fs::write(dir.join("Singles/Song.lrc"), "[00:01.00]Hi").unwrap();
+
+        assert_eq!(sidecars(&song), vec![dir.join("Album/Lyrics/01 - Intro.lrc")]);
+        assert_eq!(read_sidecar(&song).as_deref(), Some("[00:01.00]Hello"));
+        assert_eq!(read_sidecar(&single).as_deref(), Some("[00:01.00]Hi"));
+        assert!(local_lyrics(&song).is_some_and(|l| l.synced.is_some()));
+        // New .lrc files follow the folder's habit
+        assert_eq!(lrc_target(&dir.join("Album/02 - Two.flac")), dir.join("Album/Lyrics/02 - Two.lrc"));
+        assert_eq!(lrc_target(&dir.join("Singles/Other.mp3")), dir.join("Singles/Other.lrc"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

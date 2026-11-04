@@ -505,8 +505,11 @@ const VIEWS = {
 
   albums() {
     if (!S.tracks.length) return `<div class="page-h"><h1>Albums</h1></div>${emptyLibrary()}`;
-    filters.set('w-albums', q => { q = norm(q).trim(); return gridHtml('albums', q ? S.albums.filter(a => a._s.includes(q)) : S.albums, a => albumCard(a)); });
-    return `<div class="page-h"><h1>Albums</h1><div class="row"><span class="sub">${plural(S.albums.length, 'album', 'albums')}</span><span class="grow"></span>${filterBox('w-albums')}</div></div>
+    const list = sortedAlbums(), key = S.prefs.albumSort || 'name';
+    filters.set('w-albums', q => { q = norm(q).trim(); return gridHtml('albums', q ? list.filter(a => a._s.includes(q)) : list, a => albumCard(a)); });
+    const sortPick = `<select class="sel" id="alb-sort" title="Sort albums">${ALBUM_SORTS.map(([k, l]) => `<option value="${k}" ${k === key ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="ib" data-action="alb-dir" title="Reverse the order">${ic(albumSortDir() > 0 ? 'sortUp' : 'sortDown', 12)}</button>`;
+    return `<div class="page-h"><h1>Albums</h1><div class="row"><span class="sub">${plural(S.albums.length, 'album', 'albums')}</span><span class="grow"></span>${sortPick}${filterBox('w-albums')}</div></div>
       <div id="w-albums">${filters.get('w-albums')('')}</div>`;
   },
 
@@ -1437,6 +1440,26 @@ document.addEventListener('click', e => {
 /* Buttons with data-action="name": the other scripts add theirs here (name → fn(arg)) */
 const ACTIONS = new Map();
 const addActions = list => { for (const [name, fn] of Object.entries(list)) ACTIONS.set(name, fn); };
+
+/* Albums page order: name, artist, year or recently added; each has its natural direction
+   (A→Z, newest first) and the arrow button reverses it */
+const ALBUM_SORTS = [['name', 'Name'], ['artist', 'Artist'], ['year', 'Year'], ['added', 'Recently added']];
+const albumSortDir = () => (S.prefs.albumSortDir || 1) * ((S.prefs.albumSort === 'year' || S.prefs.albumSort === 'added') ? -1 : 1);
+function sortedAlbums() {
+  const key = S.prefs.albumSort || 'name', dir = albumSortDir();
+  const by = {
+    name: (x, y) => cmp(x.title, y.title),
+    artist: (x, y) => cmp(x.albumArtist || x.owner, y.albumArtist || y.owner) || (x.year - y.year) * dir || cmp(x.title, y.title) * dir,
+    // Albums without a year go last either way
+    year: (x, y) => (!x.year - !y.year) * dir || (x.year - y.year) || cmp(x.title, y.title) * dir,
+    added: (x, y) => (x.added - y.added) || cmp(x.title, y.title) * dir,
+  }[key] || ((x, y) => cmp(x.title, y.title));
+  return [...S.albums].sort((x, y) => by(x, y) * dir);
+}
+addActions({ 'alb-dir': () => { S.prefs.albumSortDir = -(S.prefs.albumSortDir || 1); savePrefs(); rerender(); } });
+view.addEventListener('change', e => {
+  if (e.target.id === 'alb-sort') { S.prefs.albumSort = e.target.value; S.prefs.albumSortDir = 1; savePrefs(); rerender(); }
+});
 
 function runAction(a, arg) {
   if (a === 'add-folder') addFolder();

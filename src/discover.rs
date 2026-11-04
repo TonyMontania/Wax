@@ -322,10 +322,10 @@ fn fold(s: &str) -> String {
     out.trim().to_string()
 }
 
-/// Lines of a song's lyrics: the .lrc/.txt next to it, the tags, or Wax's LRCLIB cache.
+/// Lines of a song's lyrics: its .lrc/.txt (next to it or in a Lyrics subfolder), the tags, or Wax's LRCLIB cache.
 fn lyric_lines(path: &str, name: &str) -> Vec<String> {
     let p = Path::new(path);
-    let mut text = ["lrc", "txt"].iter().find_map(|e| fs::read_to_string(p.with_extension(e)).ok());
+    let mut text = crate::lyrics::read_sidecar(p);
     if text.is_none() {
         text = Probe::open(p)
             .map(|x| x.options(ParseOptions::new().read_cover_art(false)))

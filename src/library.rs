@@ -545,7 +545,7 @@ pub async fn embed_covers(app: AppHandle, jobs: Vec<CoverJob>) -> Result<TagResu
 
 /* ───────────── Library check helpers ───────────── */
 
-/// For each file: does it have lyrics (a .lrc/.txt next to it or embedded in the tags)?
+/// For each file: does it have lyrics (a .lrc/.txt next to it or in a Lyrics subfolder, or embedded in the tags)?
 #[tauri::command]
 pub async fn lyrics_status(paths: Vec<String>) -> Vec<bool> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -553,7 +553,7 @@ pub async fn lyrics_status(paths: Vec<String>) -> Vec<bool> {
             .par_iter()
             .map(|p| {
                 let path = Path::new(p);
-                if ["lrc", "txt"].iter().any(|e| path.with_extension(e).is_file()) {
+                if !crate::lyrics::sidecars(path).is_empty() {
                     return true;
                 }
                 Probe::open(path)
@@ -578,11 +578,8 @@ pub async fn trash_files(paths: Vec<String>) -> Result<Vec<String>, String> {
             let path = Path::new(p);
             match trash::delete(path) {
                 Ok(()) => {
-                    for e in ["lrc", "txt"] {
-                        let side = path.with_extension(e);
-                        if side.is_file() {
-                            let _ = trash::delete(&side);
-                        }
+                    for side in crate::lyrics::sidecars(path) {
+                        let _ = trash::delete(&side);
                     }
                 }
                 Err(e) => errors.push(format!("{}: {e}", file_name(p))),
@@ -794,11 +791,22 @@ pub async fn organize_files(moves: Vec<Move>, roots: Vec<String>) -> Result<Orga
             }
             match move_file(from, to) {
                 Ok(()) => {
-                    for ext in ["lrc", "txt"] {
-                        let side = from.with_extension(ext);
-                        if side.exists() {
-                            let _ = move_file(&side, &to.with_extension(ext));
-                        }
+                    // Lyrics go along: next to the song, or into a Lyrics subfolder there if they were in one
+                    for side in crate::lyrics::sidecars(from) {
+                        let ext = side.extension().map(|e| e.to_os_string()).unwrap_or_default();
+                        let in_sub = side.parent() != from.parent();
+                        let dest = match (in_sub, side.parent().and_then(|d| d.file_name()), to.parent(), to.file_stem()) {
+                            (true, Some(sub), Some(dir), Some(stem)) => {
+                                let mut name = stem.to_os_string();
+                                name.push(".");
+                                name.push(&ext);
+                                let d = dir.join(sub);
+                                let _ = fs::create_dir_all(&d);
+                                d.join(name)
+                            }
+                            _ => to.with_extension(&ext),
+                        };
+                        let _ = move_file(&side, &dest);
                     }
                     if let (Some(a), Some(b)) = (from.parent(), to.parent()) {
                         dirs.entry(a.to_path_buf()).or_default().insert(b.to_path_buf());

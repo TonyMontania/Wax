@@ -58,6 +58,7 @@
     "windows": {
       "nsis": {
         "installMode": "both",
+        "template": "packaging/windows/installer.nsi",
         "displayLanguageSelector": false
       }
     },

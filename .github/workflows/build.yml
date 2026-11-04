@@ -60,8 +60,9 @@ jobs:
         with:
           node-version: 22
 
+      # 2.12.4: the version packaging/windows/installer.nsi comes from (keep them together)
       - name: Build
-        run: npx --yes @tauri-apps/cli@2 build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        run: npx --yes @tauri-apps/cli@2.12.4 build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Collect the files
         shell: bash
