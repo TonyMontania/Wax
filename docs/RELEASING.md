@@ -27,30 +27,11 @@ without looking at the processor, so the x64 file has to come first (`amd64` < `
 
 If Windows signing is set up (below), use the `…-signed` artifacts for Windows.
 
-## 3. Sign the update files
+## 3. Publish
 
-The updater refuses files that aren't signed with the maintainer's key. The private key is
-`~/.wax/wax-release.key` on the maintainer's computer — never in the repo, never in CI. **Keep a
-backup** (a password manager or a USB stick): without it, installed copies can't update by
-themselves anymore and people would have to download Wax again by hand.
-
-```bash
-cargo run --release --example sign_release -- sign ~/.wax/wax-release.key release/*
-```
-
-This writes `signatures.txt` (every file's signature, one per line) and a `.sig` next to each file.
-
-- **1.2.0:** upload the files, `signatures.txt` **and the `.sig` files**. Wax 1.1.0 only knows
-  the `.sig` way, and copies still on 1.1.0 must be able to update.
-- **After 1.2.0:** upload only the files and `signatures.txt` (every copy that updates passes
-  through a version that reads it). The release then lists each file once:
-  `gh release create … $(ls release/* | grep -v '\.sig$')`
-
-The matching public key is `UPDATE_KEY` in `src/updater.rs`. A new key pair
-(`… -- keygen <file>`) means changing `UPDATE_KEY`, and copies with the old key won't accept
-updates signed with the new one.
-
-## 4. Publish
+Upload only the 12 files above — nothing else. The in-app updater checks each download against
+the SHA-256 GitHub publishes for every release file (it shows in the release's file list), and
+won't install a file without one.
 
 ```bash
 gh release create v<version> release/* --title "Wax <version>" --notes-file notes.md

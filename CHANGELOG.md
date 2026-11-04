@@ -2,10 +2,11 @@
 
 What changed in each version of Wax, as you'd notice it in the app.
 
-## Next version (not released yet)
+## 1.1.1
 
 - **Albums can be sorted** by name, artist, year or recently added, in either direction ([#2](https://github.com/TonyMontania/Wax/issues/2))
 - **Lyrics in a `Lyrics` subfolder** of the album folder are found too, and new `.lrc` files go there when the album has one ([#3](https://github.com/TonyMontania/Wax/issues/3))
+- **Updates inside Wax**: a bar at the top when a new version is out; Update downloads it in a window with its progress, then **Install and restart**. If you have 1.1.0, download this version by hand once — from 1.1.1 on, Wax updates itself again
 - **"Run Wax" at the end of the installer** opens Wax every time, also after installing for all users ([#1](https://github.com/TonyMontania/Wax/issues/1)); the same goes for reopening after an update
 
 ## 1.1.0

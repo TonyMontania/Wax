@@ -55,10 +55,9 @@ Some tests need the network or the real system, and are skipped unless asked for
 | `src/discover.rs` | New releases, credits, lyrics search, AutoEQ, Spotify CSV |
 | `src/desktop.rs` | Tray, taskbar buttons, mini player, notifications, global shortcuts, full screen, autostart |
 | `src/discord.rs` | Discord status |
-| `src/updater.rs` | Updates from GitHub Releases (checked against the maintainer's signature) |
+| `src/updater.rs` | Updates from GitHub Releases: download with progress, checked against GitHub's SHA-256, then install |
 | `src/party.rs`, `src/party.html` | Listen Together: the host's server, joining, the web listener page |
 | `ui/` | Interface: `app.js`, `extras.js`, `party.js`, `more.js`, `engine.js` (engine bridge), `mini.html`, `osd.html`. Plain scripts sharing one scope; buttons with `data-action` are registered with `addActions({...})` |
-| `examples/sign_release.rs` | Signs release files for the updater |
 | `tests/fixtures/` | Short test tones for the audio tests |
 | `packaging/` | Files that go into the portable zip |
 | `dev/` | Interface preview and the icon generator (`make_icon.py`) |

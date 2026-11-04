@@ -671,62 +671,130 @@ async function importSpotify() {
   };
 }
 
-/* ───────────── Updates (GitHub releases) ───────────── */
-const UPD = { info: null, checking: false, installing: false, ready: null };
+/* ───────────── Updates (GitHub releases) ─────────────
+   When a new version is out, a bar shows at the top. Update downloads it in a window with its
+   progress; once it's checked, "Install and restart" closes Wax, installs it where this copy is
+   and opens it again. */
+const UPD = { info: null, checking: false, phase: 'idle', done: 0, total: 0, file: '', error: '', dismissed: false, restart: false };
 const installLabel = () => ({ portable: 'Portable', installed: 'Installed', mac: 'macOS app', appimage: 'AppImage', package: 'Linux package' })[S.appInfo?.install] || '';
+const mb = n => (n / 1048576).toFixed(1);
 function updateStatus() {
   const u = UPD.info;
-  if (UPD.installing) return 'Downloading the update…';
-  if (UPD.ready === 'restart') return 'Update installed: restart Wax to use it';
+  if (UPD.restart) return 'Update installed: restart Wax to use it';
+  if (UPD.phase === 'downloading') return 'Downloading the update…';
   if (UPD.checking) return 'Checking for updates…';
   if (!u) return '';
   if (u.newer) return u.asset ? `Version ${u.latest} is available` : `Version ${u.latest} is out, but not for this system yet`;
   return "You're up to date";
 }
 function updateButton() {
-  if (UPD.ready === 'restart') return `<button class="btn btn-green btn-sm" data-action="upd-restart">Restart</button>`;
-  if (UPD.info?.newer && UPD.info.asset) return `<button class="btn btn-ghost btn-sm" data-action="upd-notes">What's new</button> <button class="btn btn-green btn-sm" data-action="upd-install" ${UPD.installing ? 'disabled' : ''}>Update to ${esc(UPD.info.latest)}</button>`;
+  if (UPD.restart) return `<button class="btn btn-green btn-sm" data-action="upd-restart">Restart</button>`;
+  if (UPD.info?.newer && UPD.info.asset) return `<button class="btn btn-ghost btn-sm" data-action="upd-notes">What's new</button> <button class="btn btn-green btn-sm" data-action="upd-install">Update to ${esc(UPD.info.latest)}</button>`;
   return `<button class="btn btn-ghost btn-sm" data-action="upd-check" ${UPD.checking ? 'disabled' : ''}>Check for updates</button>`;
 }
+
+// The bar at the top
+const updBar = document.createElement('div');
+updBar.id = 'upd-bar';
+$('#topbar').insertAdjacentElement('afterend', updBar);
+function renderUpdateBar() {
+  const u = UPD.info;
+  const show = u?.newer && !UPD.dismissed && !UPD.restart && UPD.phase === 'idle';
+  updBar.classList.toggle('on', !!show);
+  if (!show) { updBar.innerHTML = ''; return; }
+  updBar.innerHTML = `<span class="upd-ic">${ic('down', 14)}</span>
+    <div class="upd-t"><b>Wax ${esc(u.latest)} is available</b><span>You're on ${esc(u.current)}.${u.asset ? '' : ' There\'s no build for this system in it yet.'}</span></div>
+    ${u.asset ? `<button class="btn btn-green btn-sm" data-action="upd-install">Update</button>` : `<button class="btn btn-green btn-sm" data-action="upd-page">Release page</button>`}
+    <button class="btn btn-ghost btn-sm" data-action="upd-notes">What's new</button>
+    <button class="ib" data-action="upd-later" title="Later">${ic('x', 14)}</button>`;
+}
+updBar.addEventListener('click', e => { const a = e.target.closest('[data-action]'); if (a) runAction(a.dataset.action, a.dataset.arg); });
+
 async function checkUpdates(manual = false) {
   UPD.checking = true; if (route.view === 'settings') rerender();
   try {
     UPD.info = await invoke('check_update');
     S.prefs.updateCheckedAt = Date.now(); savePrefs();
-    if (UPD.info.newer && UPD.info.asset && !manual) toast(`Wax ${UPD.info.latest} is available · Settings → About`, 6000);
     if (manual && !UPD.info.newer) toast("You're up to date");
   } catch (e) { if (manual) toast("Couldn't check for updates: " + e, 5000); }
   UPD.checking = false; if (route.view === 'settings') rerender();
+  renderUpdateBar();
 }
-async function installUpdate() {
-  if (UPD.installing || busy()) return;
-  UPD.installing = true; if (route.view === 'settings') rerender();
-  const task = startTask(`Updating Wax to ${UPD.info.latest}`);
-  const off = await TAURI.event.listen('update-progress', e => task.update(Math.round(e.payload.done / 1048576), Math.round((e.payload.total || 0) / 1048576), 'MB'));
+
+// The update window: downloading → ready (checked) → installing, or an error
+function updateWindowHtml() {
+  const u = UPD.info, kind = S.appInfo?.install;
+  const head = `<h2>Update to Wax ${esc(u.latest)}</h2>`;
+  if (UPD.phase === 'downloading') {
+    const pct = UPD.total ? Math.floor(UPD.done / UPD.total * 100) : 0;
+    return `${head}<p class="sub">Downloading ${esc(UPD.file || u.asset)}…</p>
+      <div class="upd-progress"><i style="width:${pct}%"></i></div>
+      <p class="sub upd-num">${mb(UPD.done)} MB${UPD.total ? ` / ${mb(UPD.total)} MB` : ''} · ${pct}%</p>`;
+  }
+  if (UPD.phase === 'ready') {
+    const what = kind === 'package' ? 'The system installer opens to finish; it asks for your password.'
+      : kind === 'portable' || kind === 'appimage' ? 'Wax restarts with the new version.'
+      : 'Wax closes, installs the update and opens again.';
+    return `${head}<p>Download complete and verified. ${what}</p>
+      <div class="btns"><span class="grow"></span><button class="btn btn-ghost" data-d="later">Later</button><button class="btn btn-green" data-d="install">${kind === 'package' ? 'Install' : 'Install and restart'}</button></div>`;
+  }
+  if (UPD.phase === 'installing') return `${head}<p>Installing… Wax opens again in a moment.</p>`;
+  return `${head}<p class="upd-err">${esc(UPD.error)}</p>
+    <div class="btns"><span class="lnk" data-d="page">Release page</span><span class="grow"></span><button class="btn btn-ghost" data-d="close">Close</button><button class="btn btn-green" data-d="retry">Try again</button></div>`;
+}
+function renderUpdateWindow() {
+  const d = $('#upd-dlg');
+  if (d) d.innerHTML = updateWindowHtml();
+}
+function openUpdateWindow() {
+  dialog(`<div id="upd-dlg">${updateWindowHtml()}</div>`);
+  modalBg.onclick = e => {
+    const b = e.target.closest('[data-d]')?.dataset.d;
+    const busy = UPD.phase === 'downloading' || UPD.phase === 'installing';
+    if (b === 'install') { applyUpdate(); return; }
+    if (b === 'retry') { downloadUpdate(); return; }
+    if (b === 'page') { invoke('open_link', { url: UPD.info.page }); return; }
+    if (b || (e.target === modalBg && !busy)) closeDialog();
+  };
+}
+async function downloadUpdate() {
+  if (!UPD.info?.asset || UPD.phase === 'downloading' || UPD.phase === 'installing') { if (UPD.phase !== 'idle') openUpdateWindow(); return; }
+  Object.assign(UPD, { phase: 'downloading', done: 0, total: UPD.info.size || 0, file: UPD.info.asset, error: '' });
+  renderUpdateBar();
+  if (!$('#upd-dlg')) openUpdateWindow(); else renderUpdateWindow();
+  const off = await TAURI.event.listen('update-progress', e => { UPD.done = e.payload.done; UPD.total = e.payload.total || UPD.total; renderUpdateWindow(); });
   try {
-    const next = await invoke('install_update');
-    task.finish();
-    if (next === 'restart') { UPD.ready = 'restart'; toast('Update installed · restart Wax to use it', 6000); }
-    else if (next === 'exit') { toast('Wax closes to finish the update and opens again by itself', 4000); setTimeout(() => appWin.close(), 1500); }
-    else if (next === 'opened') toast('The installer opened: follow it to finish the update', 6000);
-  } catch (e) { task.finish("Couldn't update: " + e, 7000); }
-  off(); UPD.installing = false;
+    UPD.file = await invoke('download_update');
+    UPD.phase = 'ready';
+  } catch (e) { UPD.phase = 'error'; UPD.error = `Download failed: ${e}`; }
+  off();
+  if ($('#upd-dlg')) renderUpdateWindow(); else if (UPD.phase === 'ready') openUpdateWindow();
   if (route.view === 'settings') rerender();
+}
+async function applyUpdate() {
+  UPD.phase = 'installing'; renderUpdateWindow();
+  try {
+    const next = await invoke('apply_update');
+    if (next === 'restart') { await invoke('restart_app'); return; }
+    if (next === 'exit') { setTimeout(() => invoke('quit_app'), 800); return; }
+    // 'opened': the system installer took over
+    UPD.phase = 'idle'; closeDialog(); toast('The installer opened: follow it to finish the update', 6000);
+  } catch (e) { UPD.phase = 'error'; UPD.error = `The update couldn't be installed: ${e}`; renderUpdateWindow(); }
 }
 function updateNotes() {
   const u = UPD.info; if (!u) return;
-  dialog(`<h2>Wax ${esc(u.latest)}</h2><div class="upd-notes">${u.notes ? esc(u.notes).replace(/\n/g, '<br>') : '<p class="sub">No notes for this version.</p>'}</div>
-    <div class="btns"><span class="lnk" data-action="open-link" data-arg="${esc(u.page)}">See it on GitHub</span><span class="grow"></span><button class="btn btn-ghost" data-d="x">Close</button><button class="btn btn-green" data-d="go">Update</button></div>`, 'wide');
+  // Notes without the download table (the update knows which file it needs)
+  const notes = (u.notes || '').replace(/## Download[\s\S]*?(?=\n## |$)/, '').trim();
+  dialog(`<h2>Wax ${esc(u.latest)}</h2><div class="upd-notes">${notes ? esc(notes).replace(/\n/g, '<br>') : '<p class="sub">No notes for this version.</p>'}</div>
+    <div class="btns"><span class="lnk" data-action="open-link" data-arg="${esc(u.page)}">See it on GitHub</span><span class="grow"></span><button class="btn btn-ghost" data-d="x">Close</button>${u.asset ? '<button class="btn btn-green" data-d="go">Update</button>' : ''}</div>`, 'wide');
   modalBg.onclick = e => {
     const l = e.target.closest('[data-action="open-link"]'); if (l) { invoke('open_link', { url: l.dataset.arg }); return; }
     const b = e.target.closest('[data-d]')?.dataset.d;
-    if (b === 'go') { closeDialog(); installUpdate(); } else if (b || e.target === modalBg) closeDialog();
+    if (b === 'go') { closeDialog(); downloadUpdate(); } else if (b || e.target === modalBg) closeDialog();
   };
 }
-// Once a day, a few seconds after starting
-setTimeout(() => {
-  if (S.prefs.autoUpdate !== false && Date.now() - (S.prefs.updateCheckedAt || 0) > 20 * 3600 * 1000) checkUpdates(false);
-}, 8000);
+// A few seconds after Wax starts
+setTimeout(() => { if (S.prefs.autoUpdate !== false) checkUpdates(false); }, 4000);
 
 /* ───────────── Readable cache names (once, for data from older versions) ───────────── */
 async function migrateCacheNames() {
@@ -765,7 +833,9 @@ addActions({
   'pl-edit': arg => editPlaylistDetails(arg),
   'clean-images': () => cleanImageCache(true),
   'upd-check': () => checkUpdates(true),
-  'upd-install': () => installUpdate(),
+  'upd-install': () => downloadUpdate(),
+  'upd-later': () => { UPD.dismissed = true; renderUpdateBar(); },
+  'upd-page': () => invoke('open_link', { url: UPD.info?.page }),
   'upd-notes': () => updateNotes(),
   'upd-restart': () => invoke('restart_app'),
   'spotify-import': () => importSpotify(),

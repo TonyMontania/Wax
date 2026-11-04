@@ -1902,7 +1902,7 @@ VIEWS.settings = () => {
 
     <h3>About</h3>
     ${setRow(`Wax ${esc(S.appInfo?.version || '')}`, `${esc(installLabel())} · <span id="upd-status">${esc(updateStatus())}</span>`, updateButton())}
-    ${setRow('Check for updates automatically', 'Once a day, when Wax starts. Updates install in the same place Wax is.', sw('autoUpdate', true))}
+    ${setRow('Check for updates automatically', 'When Wax starts. Updates install in the same place Wax is.', sw('autoUpdate', true))}
     ${setRow('Program folder', `<code>${esc(S.appInfo?.appDir || '')}</code>`, `<button class="btn btn-ghost btn-sm" data-action="open-app">Open</button>`)}
     ${setRow('Data folder', `Library, playlists, settings and image cache: <code>${esc(S.appInfo?.dataDir || 'data')}</code>`, `<button class="btn btn-ghost btn-sm" data-action="open-data">Open</button>`)}
   </div>`;
