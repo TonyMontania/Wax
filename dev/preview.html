@@ -82,6 +82,7 @@
     check_update: () => ({ current: '1.1.0', latest: '1.1.1', newer: true, notes: "## Download\n\n| System | File |\n\n## What's new\n\n- Albums can be sorted", page: 'https://github.com', asset: 'Wax_1.1.1_amd64-setup.exe', size: 5600000, install: 'installed' }),
     download_update: async () => { for (let i = 1; i <= 10; i++) { await new Promise(r => setTimeout(r, 150)); window.__TAURI__.event.emit('update-progress', { done: i * 560000, total: 5600000 }); } return 'Wax_1.1.1_amd64-setup.exe'; },
     apply_update: () => 'exit', quit_app: () => {}, restart_app: () => {},
+    party_lyrics: () => ({ found: true, synced: "[00:00.00]Lyrics from the host\n[00:05.00]Second line", source: 'Local .lrc file' }),
     party_request: () => {}, party_share: async () => { await new Promise(r => setTimeout(r, 300)); return 1000000000; }, forget_artist_photos: () => {},
     organize_files: ({ moves }) => ({ moved: moves.map(m => [m.from, m.to]), errors: [] }),
     set_shortcuts: () => [], watch_folders: () => {}, media_update: () => {}, tray_tooltip: () => {}, taskbar_playing: () => {}, osd_show: () => {}, append_history: () => {},

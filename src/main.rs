@@ -410,6 +410,7 @@ fn main() {
             party::party_cover,
             party::party_search,
             party::party_request,
+            party::party_lyrics,
             party::party_share,
         ])
         .run(tauri::generate_context!())

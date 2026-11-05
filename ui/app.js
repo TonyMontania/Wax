@@ -1053,13 +1053,17 @@ async function loadLyrics(t, force = false) {
   L.path = t.path; L.lines = []; L.els = []; L.synced = false; L.idx = -1;
   const online = S.prefs.lyricsOnline !== false;
   let r;
-  try {
-    r = await invoke('get_lyrics', { path: t.path, title: t.title, artist: t.artist, album: t.album, duration: t.duration || 0, online, force });
-  } catch (e) { r = { error: String(e) }; }
+  // In someone's session: the host's lyrics first (their .lrc, tags or saved ones)
+  if (t._party != null && !force) r = await invoke('party_lyrics', { id: t._party }).catch(() => null);
+  if (!r?.found) {
+    try {
+      r = await invoke('get_lyrics', { path: t.path, title: t.title, artist: t.artist, album: t.album, duration: t.duration || 0, online, force });
+    } catch (e) { r = { error: String(e) }; }
+  }
 
   const raw = r.synced || r.plain || '';
-  // Automatic saving: only when the lyrics were just downloaded from LRCLIB
-  if (r.fresh && raw && !t.cue) {
+  // Automatic saving: only when the lyrics were just downloaded from LRCLIB (never for a host's song)
+  if (r.fresh && raw && !t.cue && t._party == null) {
     const kinds = [S.prefs.saveLrc && 'lrc', S.prefs.embedLyrics && 'embed'].filter(Boolean);
     if (kinds.length) saveLyrics(t, raw, kinds, true);
   }
@@ -1070,7 +1074,7 @@ async function loadLyrics(t, force = false) {
 
   // Footer pinned to the panel: lyrics source + save .lrc / embed / search again
   const hasLrc = r.source === 'Local .lrc file', inTags = r.source === 'File tags';
-  $('#ly-foot').innerHTML = raw ? `
+  $('#ly-foot').innerHTML = t._party != null ? (raw ? `<div class="ly-src">Lyrics from ${esc(r.source)}</div>` : '') : raw ? `
     <div class="ly-src">Lyrics from ${esc(r.source)}</div>
     <div class="ly-actions">
       <button class="btn btn-ghost" data-action="lyrics-save" data-arg="lrc" ${hasLrc ? 'disabled' : ''}>${hasLrc ? '✓ Has .lrc' : 'Save .lrc'}</button>
@@ -1152,7 +1156,7 @@ audio.addEventListener('play', lyricsLoop);
 audio.addEventListener('seeked', () => syncLyrics(true));
 lyBody.addEventListener('wheel', () => { L.userScroll = Date.now(); }, { passive: true });
 lyBody.addEventListener('click', e => {
-  const line = e.target.closest('[data-ly]'); if (!line || !L.synced) return;
+  const line = e.target.closest('[data-ly]'); if (!line || !L.synced || Party.guest) return;   // a guest can't move the host's song
   audio.currentTime = Math.max(0, L.lines[+line.dataset.ly].t);
   L.userScroll = 0;
   if (audio.paused) audio.play();
@@ -1166,7 +1170,7 @@ function setLyricsPanel(open) {
   scheduleRows();
 }
 function refreshLyricsPanel(force = false) {
-  const t = S.tracks[P.current];
+  const t = S.tracks[P.current] || partyLyricsTrack();
   $('#ly-track').textContent = t ? `${t.title} · ${t.artist}` : '';
   lyBody.scrollTop = 0; L.userScroll = 0;
   if (!t) { L.path = null; lyBody.innerHTML = '<div class="ly-status"><p>Play a song to see its lyrics.</p></div>'; return; }

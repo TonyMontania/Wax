@@ -142,6 +142,15 @@ fn lrclib(title: &str, artist: &str, album: &str, duration: f64) -> Result<Optio
     }))
 }
 
+/// The lyrics this computer already has for a song, without going online: its .lrc/.txt, its
+/// tags, or Wax's cache of earlier downloads (what a Listen Together host shares with guests)
+pub fn known_lyrics(path: &Path, title: &str, artist: &str) -> Option<Lyrics> {
+    local_lyrics(path).or_else(|| {
+        let cache = data_dir().join("lyrics").join(format!("{}.json", file_name(&format!("{artist} - {title}"))));
+        fs::read_to_string(cache).ok().and_then(|s| serde_json::from_str::<Lyrics>(&s).ok()).filter(|l| l.found)
+    })
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn get_lyrics(path: String, title: String, artist: String, album: String, duration: f64, online: bool, force: bool) -> Lyrics {

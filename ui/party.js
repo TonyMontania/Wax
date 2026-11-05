@@ -268,16 +268,35 @@ function partyNowPlaying() {
   return true;
 }
 
+// The host's song as a track for the lyrics panel (null when not in a session)
+function partyLyricsTrack() {
+  const g = Party.guest, s = g?.state.track;
+  if (!s) return null;
+  return { path: g.track?.path || `party:${s.id}`, title: s.title, artist: s.artist, album: s.album, duration: s.duration, _party: s.id };
+}
+
+// Guests get the song-change notification too, like with their own music
+function guestAnnounce(song, cover) {
+  invoke('tray_tooltip', { text: `${song.title} — ${song.artist}` }).catch(() => {});
+  if (S.prefs.notify === false || (!document.hidden && document.hasFocus())) return;
+  invoke('osd_show', { payload: { title: song.title, artist: song.artist, album: song.album, cover: cover || null, accent: accent() } }).catch(() => {});
+}
+
 function guestNowPlaying(song) {
   if (Party.guest) Party.guest.cover = null;
   showSong(song);
+  if (lyricsOpen()) refreshLyricsPanel();
   if (!song) return;
+  let announced = false;
+  const announce = cover => { if (!announced && Party.guest?.state.track?.id === song.id) { announced = true; guestAnnounce(song, cover); } };
+  setTimeout(() => announce(Party.guest?.cover), 1500);   // without the cover if it's slow to come
   invoke('party_cover', { id: song.id }).then(p => {
     if (!p || Party.guest?.loaded !== song.id) return;
     const url = `${TAURI.core.convertFileSrc(p)}?v=${Date.now()}`;
     Party.guest.cover = url;
     for (const el of [npCover, sbCover]) { el.style.backgroundImage = `url("${url}")`; el.classList.add('has-img'); }
     const big = $('#party-cover'); if (big) { big.style.backgroundImage = `url("${url}")`; big.classList.add('has-img'); }
+    announce(url);
   });
 }
 

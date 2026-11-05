@@ -820,6 +820,17 @@ fn handle(req: Request, ctx: &Ctx) {
                 None => reply_json(req, 404, &json!({ "error": "not playing or queued" })),
             }
         }
+        p if p.starts_with("/api/lyrics/") => {
+            // The lyrics the host has for the song playing or a queued one
+            let id: u32 = p[12..].parse().unwrap_or(u32::MAX);
+            let song = {
+                let l = ctx.live.lock().unwrap();
+                let shared = l.state.track == Some(id) || l.state.queue.iter().take(30).any(|&q| q == id);
+                shared.then(|| l.songs.get(&id).cloned()).flatten()
+            };
+            let lyrics = song.and_then(|s| crate::lyrics::known_lyrics(Path::new(&s.path), &s.title, &s.artist));
+            reply_json(req, 200, &json!({ "lyrics": lyrics }));
+        }
         p if p.starts_with("/api/cover/") => {
             // Only the cover of the song playing now
             let id: u32 = p[11..].parse().unwrap_or(u32::MAX);
@@ -1272,6 +1283,15 @@ pub async fn party_cover(id: u32) -> Option<String> {
     .flatten()
 }
 
+/// The host's lyrics for a song of the session (null if the host has none)
+#[tauri::command]
+pub async fn party_lyrics(id: u32) -> Option<Value> {
+    tauri::async_runtime::spawn_blocking(move || get_json(&conn_url(&format!("/api/lyrics/{id}"), "").ok()?).ok().map(|v| v["lyrics"].clone()).filter(|v| !v.is_null()))
+        .await
+        .ok()
+        .flatten()
+}
+
 #[tauri::command]
 pub async fn party_search(query: String) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || get_json(&conn_url("/api/search", &format!("&q={}", pct_encode(&query)))?)).await.map_err(|e| e.to_string())?
@@ -1532,6 +1552,12 @@ mod tests {
         leave_downloads();
         assert_eq!(fs::read(fetch(&shared, 1.0).unwrap()).unwrap(), fs::read(&wav_path).unwrap());
         update_host(HostState { track: Some(3), pos_ms: 1500, paused: false, queue: vec![4, 5], allow_requests: true, cover: None, compress: false, allow_shares: false });
+
+        // The host's lyrics: a .lrc next to the song travels to the guest
+        fs::write(dir.join("song.lrc"), "[00:01.00]Rain down").unwrap();
+        let ly = get_json(&conn_url("/api/lyrics/3", "").unwrap()).unwrap();
+        assert_eq!(ly["lyrics"]["synced"], "[00:01.00]Rain down");
+        assert!(get_json(&conn_url("/api/lyrics/999", "").unwrap()).unwrap()["lyrics"].is_null(), "only songs of the session");
 
         // Searching and asking for a song
         let hits = get_json(&conn_url("/api/search", "&q=karma%20ok").unwrap()).unwrap();

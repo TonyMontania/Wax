@@ -4,6 +4,7 @@ What changed in each version of Wax, as you'd notice it in the app.
 
 ## Next version (not released yet)
 
+- **Listen Together:** guests get the song-change notification too, and the lyrics panel shows the host's lyrics (their .lrc files, embedded or saved lyrics); if the host has none, Wax looks online as usual
 - **Full-screen Now Playing shows the album cover and the artist's photo in turn**, every 20 seconds with a slow fade (the button next to Lyrics turns it off) ([#5](https://github.com/TonyMontania/Wax/issues/5))
 - Full screen: a long song title no longer pushes the album line under the progress bar; titles longer than two lines are cut ([#4](https://github.com/TonyMontania/Wax/issues/4))
 - Mini player: a bit taller, so the play button no longer touches the progress bar and the artist has room ([#4](https://github.com/TonyMontania/Wax/issues/4))
