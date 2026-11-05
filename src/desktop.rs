@@ -93,7 +93,7 @@ pub async fn toggle_mini(app: AppHandle, show: bool) -> Result<(), String> {
     } else {
         let mut b = WebviewWindowBuilder::new(&app, "mini", WebviewUrl::App("mini.html".into()))
             .title("Wax")
-            .inner_size(400.0, 104.0)
+            .inner_size(400.0, 112.0)
             .resizable(false)
             .maximizable(false)
             .decorations(false)

@@ -226,7 +226,10 @@ view.addEventListener('change', e => {
 });
 
 /* ───────────── Full-screen "Now playing" ───────────── */
-const NF = { el: null, lines: [], synced: false, idx: -1, raf: 0, path: null, idle: 0 };
+// slides: album cover and artist photo, shown in turn (issue 5); slide: the one on screen
+const NF = { el: null, lines: [], synced: false, idx: -1, raf: 0, path: null, idle: 0, slides: [], slide: 0, slideAt: 0 };
+const SLIDE_MS = 20000;
+ICONS.slides = K('M2 4.5h9v8H2zM5 2.5h9v8', 1.2);
 function npFull(open) {
   if (open && P.current < 0) return;
   if (!NF.el) {
@@ -234,11 +237,11 @@ function npFull(open) {
     NF.el.id = 'npfull';
     NF.el.innerHTML = `<div class="nf-bg"></div><div class="nf-shade"></div>
       <button class="ib nf-close" title="Close (Esc)">${ic('x', 22)}</button>
-      <div class="nf-body"><div class="nf-left"><div class="nf-cover"></div><div class="nf-title"></div><div class="nf-artist"></div><div class="nf-album"></div></div>
+      <div class="nf-body"><div class="nf-left"><div class="nf-cover"><i class="nf-img on"></i><i class="nf-img"></i></div><div class="nf-title"></div><div class="nf-artist"></div><div class="nf-album"></div></div>
         <div class="nf-lyrics"></div></div>
       <div class="nf-bar"><span class="nf-t">0:00</span><div class="nf-prog"><div class="nf-fill"></div></div><span class="nf-d">0:00</span>
         <div class="nf-ctl"><button class="ib" data-nf="fav">${ic('heart', 20)}</button><button class="ib" data-nf="prev">${ic('prev', 20)}</button>
-        <button class="nf-play" data-nf="play">${ic('play', 22)}</button><button class="ib" data-nf="next">${ic('next', 20)}</button><button class="ib" data-nf="lyrics" title="Lyrics">${ic('mic', 20)}</button></div></div>`;
+        <button class="nf-play" data-nf="play">${ic('play', 22)}</button><button class="ib" data-nf="next">${ic('next', 20)}</button><button class="ib" data-nf="lyrics" title="Lyrics">${ic('mic', 20)}</button><button class="ib" data-nf="slides" title="Album and artist pictures in turn">${ic('slides', 20)}</button></div></div>`;
     document.body.appendChild(NF.el);
     NF.el.addEventListener('click', e => {
       const b = e.target.closest('[data-nf]')?.dataset.nf;
@@ -248,6 +251,7 @@ function npFull(open) {
       else if (b === 'next') next();
       else if (b === 'fav' && P.current >= 0) { toggleFav([P.current]); npFullSync(); }
       else if (b === 'lyrics') { S.prefs.nfLyrics = S.prefs.nfLyrics === false; savePrefs(); npFullSync(true); }
+      else if (b === 'slides') { S.prefs.nfSlideshow = S.prefs.nfSlideshow === false; savePrefs(); NF.slide = 0; NF.slideAt = Date.now(); nfShow(NF.slides[0]); npFullSync(); }
       const ln = e.target.closest('[data-nfl]');
       if (ln && NF.synced) audio.currentTime = Math.max(0, NF.lines[+ln.dataset.nfl].t);
       if (e.target.closest('.nf-prog')) { const r = e.target.closest('.nf-prog').getBoundingClientRect(); if (audio.duration) audio.currentTime = (e.clientX - r.left) / r.width * audio.duration; }
@@ -256,7 +260,7 @@ function npFull(open) {
   }
   NF.el.classList.toggle('open', open);
   invoke('set_fullscreen', { on: open }).catch(() => {});
-  if (open) { NF.path = null; npFullSync(); nfLoop(); } else cancelAnimationFrame(NF.raf);
+  if (open) { NF.path = null; NF.slides = []; npFullSync(); nfLoop(); } else cancelAnimationFrame(NF.raf);
 }
 function npFullSync(force = false) {
   if (!NF.el?.classList.contains('open')) return;
@@ -268,10 +272,19 @@ function npFullSync(force = false) {
   $('[data-nf="fav"]', NF.el).innerHTML = ic(isFav(t.path) ? 'heartFill' : 'heart', 20);
   $('[data-nf="fav"]', NF.el).classList.toggle('on', isFav(t.path));
   $('[data-nf="lyrics"]', NF.el).classList.toggle('on', S.prefs.nfLyrics !== false);
+  $('[data-nf="slides"]', NF.el).classList.toggle('on', S.prefs.nfSlideshow !== false);
+  // A new song starts on its cover
+  if (NF.path !== t.path) { NF.slides = []; NF.slide = 0; NF.slideAt = Date.now(); }
+  const path = t.path;
   albumCover(key, true).then(c => {
-    $('.nf-cover', NF.el).style.backgroundImage = c ? `url("${c.url}")` : '';
+    if (S.tracks[P.current]?.path !== path) return;
+    NF.slides[0] = c?.url || '';
+    if (NF.slide === 0) nfShow(NF.slides[0]);
     $('.nf-bg', NF.el).style.backgroundImage = c ? `url("${c.url}")` : '';
     NF.el.style.setProperty('--nfc', c?.color || '#333');
+  });
+  if (t._owner) artistImage(t._owner, true).then(a => {
+    if (S.tracks[P.current]?.path === path && a?.url && a.url !== NF.slides[0]) NF.slides[1] = a.url;
   });
   if (NF.path === t.path && !force) return;
   NF.path = t.path; NF.lines = []; NF.synced = false; NF.idx = -1;
@@ -287,6 +300,24 @@ function npFullSync(force = false) {
     NF.el.classList.toggle('has-lyrics', !!(NF.synced || r.plain));
   }).catch(() => {});
 }
+// Crossfade to a picture (it fades in once it has loaded, never as an empty frame)
+function nfShow(url) {
+  if (!NF.el) return;
+  const imgs = $$('.nf-img', NF.el), cur = imgs.find(i => i.classList.contains('on')) || imgs[0], nxt = imgs.find(i => i !== cur);
+  if ((cur.dataset.url || '') === (url || '')) return;
+  const go = () => { nxt.classList.add('on'); cur.classList.remove('on'); };
+  nxt.style.backgroundImage = url ? `url("${url}")` : ''; nxt.dataset.url = url || '';
+  if (!url) { go(); return; }
+  const im = new Image(); im.onload = im.onerror = go; im.src = url;
+}
+// Every 20 s while the song plays: the next picture
+setInterval(() => {
+  if (!NF.el?.classList.contains('open') || audio.paused || S.prefs.nfSlideshow === false) return;
+  const slides = NF.slides.filter(Boolean);
+  if (slides.length < 2 || Date.now() - NF.slideAt < SLIDE_MS) return;
+  NF.slide = (NF.slide + 1) % slides.length; NF.slideAt = Date.now();
+  nfShow(slides[NF.slide]);
+}, 1000);
 function nfLoop() {
   cancelAnimationFrame(NF.raf);
   const tick = () => {

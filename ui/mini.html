@@ -7,10 +7,10 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; background: #181818; color: #fff; font: 13px/1.35 "Circular", "Montserrat", "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; cursor: default; }
   body { display: flex; border: 1px solid #000; }
-  #cover { width: 102px; height: 102px; flex: none; background: #282828 center / cover no-repeat; position: relative; }
+  #cover { height: 100%; aspect-ratio: 1; flex: none; background: #282828 center / cover no-repeat; position: relative; }
   #cover .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #535353; }
   #cover.img .ph { display: none; }
-  main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 10px 10px 8px 14px; position: relative; }
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 9px 10px 6px 14px; position: relative; }
   .top { display: flex; align-items: flex-start; gap: 6px; }
   .meta { flex: 1; min-width: 0; }
   #title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -19,10 +19,10 @@
   button { background: none; border: 0; color: #b3b3b3; display: flex; align-items: center; justify-content: center; cursor: default; }
   button:hover { color: #fff; }
   button.on { color: var(--accent, #1db954); }
-  #play { width: 30px; height: 30px; border: 1px solid #b3b3b3; border-radius: 50%; color: #fff; }
+  #play { width: 28px; height: 28px; border: 1px solid #b3b3b3; border-radius: 50%; color: #fff; }
   #play:hover { border-color: #fff; transform: scale(1.06); }
   .win button { width: 22px; height: 22px; }
-  #prog { height: 12px; display: flex; align-items: center; cursor: pointer; }
+  #prog { height: 10px; display: flex; align-items: center; cursor: pointer; }
   #prog .rail { height: 3px; width: 100%; background: #404040; border-radius: 2px; position: relative; }
   #prog .fill { position: absolute; left: 0; top: 0; bottom: 0; background: #a0a0a0; border-radius: 2px; }
   #prog:hover .fill { background: var(--accent, #1db954); }
