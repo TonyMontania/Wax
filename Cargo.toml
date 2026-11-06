@@ -1,6 +1,6 @@
 [package]
 name = "wax"
-version = "1.1.1"
+version = "1.1.2"
 description = "Local music player with the classic Spotify interface"
 edition = "2021"
 

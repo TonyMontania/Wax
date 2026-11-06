@@ -5532,7 +5532,7 @@ dependencies = [
 
 [[package]]
 name = "wax"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ebur128",
  "getrandom 0.2.17",

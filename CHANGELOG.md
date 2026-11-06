@@ -2,7 +2,7 @@
 
 What changed in each version of Wax, as you'd notice it in the app.
 
-## Next version (not released yet)
+## 1.1.2
 
 - **Listen Together:** guests get the song-change notification too, and the lyrics panel shows the host's lyrics (their .lrc files, embedded or saved lyrics); if the host has none, Wax looks online as usual
 - **Full-screen Now Playing shows the album cover and the artist's photo in turn**, every 20 seconds with a slow fade (the button next to Lyrics turns it off) ([#5](https://github.com/TonyMontania/Wax/issues/5))
