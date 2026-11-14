@@ -2,7 +2,7 @@
 
 What changed in each version of Wax, as you'd notice it in the app.
 
-## Next version (not released yet)
+## 1.1.3
 
 - **Albums with several discs** show each disc under its own header ("Disc 1", "Disc 2"…), which folds its songs away with a click. Albums whose discs are in folders ("Disc 1", "CD2"…) are one album now, with the cover found one folder up
 - **Sort menus** in Songs, Your Favorites, Artists and every playlist (Albums already had one), next to their filter, with an arrow to reverse the order. Each playlist remembers its own; dragging songs to reorder works in the playlist's own order

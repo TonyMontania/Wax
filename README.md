@@ -108,11 +108,11 @@ Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#
 
 ## See it in action
 
-<img width="1918" alt="Wax — Artist page with Popular songs from Last.fm" src="docs/screenshots/artist.webp" />
+<img width="1919" alt="Wax — Artist page with Popular songs from Last.fm" src="docs/screenshots/artist.webp" />
 
 *Artist page — the artist's photo, Popular songs ranked by Last.fm, Related Artists and About tabs, and every album below.*
 
-<img width="1919" alt="Wax — Full-screen Now Playing with synced lyrics" src="docs/screenshots/now-playing.webp" />
+<img width="1919" alt="Wax — Full-screen Now Playing with synced lyrics and volume" src="docs/screenshots/now-playing.webp" />
 
 *Full-screen Now Playing (F11) — big cover, a background tinted by the album art and synced lyrics that follow the song.*
 
@@ -144,7 +144,7 @@ Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#
 - **Output device** picker and **WASAPI exclusive mode**
 - High-quality resampling and a 3 s decode buffer: no stutter, no harsh highs
 - **CUE sheets** — one-file albums split into sample-exact, gapless tracks
-- **Synced lyrics** column (LRCGET `.lrc`, embedded, LRCLIB) and **full-screen Now Playing** (F11)
+- **Synced lyrics** column (LRCGET `.lrc`, embedded, LRCLIB) and **full-screen Now Playing** (F11) — cover and artist photo in turn, its own volume
 - **Auto DJ**, artist **Radio**, **sleep timer**, mini player
 
 </td>
@@ -153,7 +153,7 @@ Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#
 **Your library**
 
 - **Artists = your artist folders** — guests never clutter the list
-- **Browse, Albums, Songs, Genres, Folders**, Recently Played, Favorites, **ratings**
+- **Browse, Albums, Songs, Genres, Folders**, Recently Played, Favorites, **ratings** — filter and sort every list; albums split by disc
 - **Playlists** with folders, images, descriptions, drag & drop, M3U import / export
 - **Import Spotify playlists** (Exportify CSV) — rebuilt with your files
 - **Edit tags** in bulk, **MusicBrainz** fill-in, **tags from file names**, **fix capitalization**, **credits**
@@ -176,7 +176,7 @@ Building from source? See [CONTRIBUTING.md → Running locally](CONTRIBUTING.md#
 - **Your Stats** and a yearly **Wrapped**
 - **Search inside lyrics**
 - **Media keys**, Windows media panel, taskbar ⏮ ⏯ ⏭ buttons
-- **Tray**, **global shortcuts**, song-change notification
+- **Tray**, **global shortcuts**, song-change notification, mini player with volume, a sidebar that folds to its icons
 - **Discord** "Listening to" status
 - **Start with Windows** (or macOS / Linux login), Start-menu shortcut
 - **8 accent colors**
