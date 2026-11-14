@@ -22,6 +22,12 @@
   #play { width: 28px; height: 28px; border: 1px solid #b3b3b3; border-radius: 50%; color: #fff; }
   #play:hover { border-color: #fff; transform: scale(1.06); }
   .win button { width: 22px; height: 22px; }
+  .grow { flex: 1; }
+  .volw { display: flex; align-items: center; gap: 6px; }
+  #vol { -webkit-appearance: none; appearance: none; width: 64px; height: 3px; border-radius: 2px; background: linear-gradient(to right, #b3b3b3 calc(var(--v, .8) * 100%), #404040 0); outline: none; }
+  #vol::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity .15s; }
+  .volw:hover #vol::-webkit-slider-thumb { opacity: 1; }
+  .volw:hover #vol { background: linear-gradient(to right, var(--accent, #1db954) calc(var(--v, .8) * 100%), #404040 0); }
   #prog { height: 10px; display: flex; align-items: center; cursor: pointer; }
   #prog .rail { height: 3px; width: 100%; background: #404040; border-radius: 2px; position: relative; }
   #prog .fill { position: absolute; left: 0; top: 0; bottom: 0; background: #a0a0a0; border-radius: 2px; }
@@ -44,6 +50,8 @@
       <button id="play" title="Play"><svg id="pi" width="14" height="14" viewBox="0 0 16 16"><path d="M4.5 2.6v10.8L13 8z" fill="currentColor"/></svg></button>
       <button id="next" title="Next"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M11.4 2.5h1.9v11h-1.9zM2.8 2.6v10.8L10.4 8z" fill="currentColor"/></svg></button>
       <button id="shuffle" title="Shuffle"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M1.5 4.5h2.2c3.3 0 5 7 8.3 7h2.5M1.5 11.5h2.2c3.3 0 5-7 8.3-7h2.5M12.5 2.5l2 2-2 2M12.5 9.5l2 2-2 2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <span class="grow"></span>
+      <div class="volw"><button id="mute" title="Mute"><svg id="vi" width="15" height="15" viewBox="0 0 16 16"></svg></button><input id="vol" type="range" min="0" max="1" step="0.01" title="Volume"></div>
     </div>
     <div id="prog"><div class="rail"><div class="fill" id="fill"></div></div></div>
   </main>
@@ -52,6 +60,15 @@
   const $ = s => document.querySelector(s);
   const cmd = c => T.event.emit('mini-cmd', c);
   const PLAY = 'M4.5 2.6v10.8L13 8z', PAUSE = 'M4 2.5h2.7v11H4zM9.3 2.5H12v11H9.3z';
+  const SPK = '<path d="M1.5 5.8h2.8L8 3v10L4.3 10.2H1.5z" fill="currentColor"/>', K = d => `<path d="${d}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`;
+  const VOL = { mute: SPK + K('M10.5 6l4 4M14.5 6l-4 4'), low: SPK + K('M10.5 5.8a3 3 0 0 1 0 4.4'), high: SPK + K('M10.5 5.8a3 3 0 0 1 0 4.4M12.4 3.8a6 6 0 0 1 0 8.4') };
+  let dragging = false;
+  function showVol(v) {
+    const r = $('#vol');
+    if (!dragging) r.value = v;
+    r.style.setProperty('--v', v);
+    $('#vi').innerHTML = v === 0 ? VOL.mute : v < .5 ? VOL.low : VOL.high;
+  }
   let st = null, base = 0, baseAt = 0;
   T.event.listen('np-state', e => {
     st = e.payload;
@@ -65,6 +82,7 @@
     $('#fav').classList.toggle('on', st.fav);
     $('#favp').setAttribute('fill', st.fav ? 'currentColor' : 'none');
     $('#shuffle').classList.toggle('on', st.shuffle);
+    if (st.vol != null) showVol(st.vol);
     base = st.pos; baseAt = performance.now();
   });
   // Smooth progress between updates
@@ -81,6 +99,12 @@
   $('#fav').onclick = () => cmd('like');
   $('#shuffle').onclick = () => cmd('shuffle');
   $('#restore').onclick = () => cmd('restore');
+  $('#mute').onclick = () => cmd('mute');
+  $('#vol').addEventListener('pointerdown', () => { dragging = true; });
+  addEventListener('pointerup', () => { dragging = false; });
+  $('#vol').addEventListener('input', e => { const v = +e.target.value; showVol(v); cmd({ vol: v }); });
+  // The mouse wheel anywhere on the mini player changes the volume
+  addEventListener('wheel', e => { if (!st) return; const v = Math.min(1, Math.max(0, (st.vol ?? .8) + (e.deltaY < 0 ? .05 : -.05))); st.vol = v; showVol(v); cmd({ vol: v }); }, { passive: true });
   $('#prog').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); cmd({ seek: (e.clientX - r.left) / r.width }); };
   addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); cmd('toggle'); } });
   addEventListener('contextmenu', e => e.preventDefault());

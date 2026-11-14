@@ -91,7 +91,14 @@ function savePrefs() {
   saveTimer = setTimeout(() => invoke('save_state', { json: JSON.stringify(S.prefs) }).catch(console.error), 400);
 }
 
-function albumKeyOf(t) { return `${t.album}::${t.albumArtist || dirOf(t.path)}`.toLowerCase(); }
+// "Disc 1", "CD2", "Disk 3 - Bonus"…: a folder holding one disc of an album
+const DISC_DIR = /^(?:disc|disk|cd)\s*[-_.]?\s*(\d{1,2})(?!\d)/i;
+const discDirOf = p => +(dirOf(p).split(/[\\/]/).pop().match(DISC_DIR)?.[1] || 0);
+// The album's folder: the one above a disc folder
+const albumDirOf = p => discDirOf(p) ? dirOf(dirOf(p)) : dirOf(p);
+function albumKeyOf(t) { return `${t.album}::${t.albumArtist || albumDirOf(t.path)}`.toLowerCase(); }
+// Disc number: from the tags, or else from a disc folder
+const discOf = t => t.discNo > 0 ? t.discNo : (discDirOf(t.path) || 1);
 function artistOf(t) { return t.albumArtist || t.artist; }
 
 /* Multiple artists: the file's multi-value tags are used (ARTISTS, or several ARTIST values),
@@ -207,6 +214,7 @@ function buildIndex() {
   S.tracks.forEach((t, i) => {
     t._names = [...new Set([t._owner, ...t._artists.flatMap(linkTargets)])];
     t._s = norm(`${t.title} ${t.artist} ${t.album} ${t.albumArtist}`);   // precomputed search text
+    t._disc = discOf(t);
     const key = albumKeyOf(t);
     let a = S.albumMap.get(key);
     if (!a) S.albumMap.set(key, a = { key, title: t.album, artists: new Set(), albumArtist: t.albumArtist, year: 0, tracks: [], added: 0, duration: 0, owner: t._owner });
@@ -237,7 +245,7 @@ function buildIndex() {
     a.shared = (dirAlbums.get(dirOf(S.tracks[a.tracks[0]].path).toLowerCase())?.size || 0) > 1;
     a.artist =a.albumArtist || (a.artists.size === 1 ? [...a.artists][0] : 'Various Artists');
     a._s = norm(`${a.title} ${a.artist} ${a.owner}`);
-    a.tracks.sort((x, y) => { const p = S.tracks[x], q = S.tracks[y]; return (p.discNo - q.discNo) || (p.trackNo - q.trackNo) || cmp(p.title, q.title); });
+    a.tracks.sort((x, y) => { const p = S.tracks[x], q = S.tracks[y]; return (p._disc - q._disc) || (p.trackNo - q.trackNo) || cmp(p.title, q.title); });
   }
   for (const ar of S.artistMap.values()) {
     ar.albums = [...ar.albums].map(k => S.albumMap.get(k)).sort((x, y) => (y.year - x.year) || cmp(x.title, y.title));
@@ -408,7 +416,8 @@ function rowHtml(id, kind, ti, pos) {
   return `<div class="tr${cls}" draggable="true" data-pos="${pos}" data-t="${ti}" style="top:${pos * ROW}px">${cells}</div>`;
 }
 
-function trackTable(id, idxs, kind = 'songs', sortable = false) {
+// `of`: the list a double-click plays (e.g. the whole album from a disc's table), starting at `off` + the row
+function trackTable(id, idxs, kind = 'songs', sortable = false, of = null, off = 0) {
   lists.set(id, idxs);
   vtables.set(id, { kind, a: -1, b: -1 });
   const C = COLS[kind];
@@ -417,7 +426,7 @@ function trackTable(id, idxs, kind = 'songs', sortable = false) {
     const on = sortState.key === key;
     return `<span class="${cls || ''} ${on ? 'on' : ''}" data-sort="${key}">${label}${on ? ic(sortState.dir > 0 ? 'sortUp' : 'sortDown', 10) : ''}</span>`;
   }).join('');
-  return `<div class="tl" data-list="${id}" style="--cols:${C.cols}"><div class="th">${heads}</div><div class="tb" style="height:${idxs.length * ROW}px"></div></div>`;
+  return `<div class="tl" data-list="${id}"${of ? ` data-of="${of}" data-off="${off}"` : ''} style="--cols:${C.cols}"><div class="th">${heads}</div><div class="tb" style="height:${idxs.length * ROW}px"></div></div>`;
 }
 
 function paintRows(force = false) {
@@ -496,10 +505,11 @@ const VIEWS = {
 
   songs() {
     if (!S.tracks.length) return `<div class="page-h"><h1>Songs</h1></div>${emptyLibrary()}`;
+    Object.assign(sortState, sortOf('songs'));
     const all = allSorted();
     filters.set('w-songs', q => trackTable('songs', filterIdx(all, q), 'songs', true));
     return `<div class="page-h"><h1>Songs</h1><div class="row">${playBtn('songs')}
-      <span class="sub">${plural(S.tracks.length, 'song', 'songs')}</span><span class="grow"></span>${filterBox('w-songs')}</div></div>
+      <span class="sub">${plural(S.tracks.length, 'song', 'songs')}</span><span class="grow"></span>${sortMenu('songs')}${filterBox('w-songs')}</div></div>
       <div id="w-songs">${filters.get('w-songs')('')}</div>`;
   },
 
@@ -515,10 +525,10 @@ const VIEWS = {
 
   artists() {
     if (!S.tracks.length) return `<div class="page-h"><h1>Artists</h1></div>${emptyLibrary()}`;
-    const list = S.artists;
+    const list = sortedArtists();
     filters.set('w-artists', q => { q = norm(q).trim(); return gridHtml('artists', q ? list.filter(a => norm(a.name).includes(q)) : list, a => artistCard(a)); });
     return `<div class="page-h"><h1>Artists</h1><div class="row"><span class="sub">${plural(list.length, 'artist', 'artists')}</span>
-      <span class="grow"></span>${filterBox('w-artists')}</div></div>
+      <span class="grow"></span>${sortMenu('artists')}${filterBox('w-artists')}</div></div>
       <div id="w-artists">${filters.get('w-artists')('')}</div>`;
   },
 
@@ -539,14 +549,28 @@ const VIEWS = {
 
   album(key) {
     const a = S.albumMap.get(key); if (!a) return notFound();
-    const discs = new Set(a.tracks.map(i => S.tracks[i].discNo || 1)).size;
+    const byDisc = new Map();
+    for (const i of a.tracks) { const d = S.tracks[i]._disc; if (!byDisc.has(d)) byDisc.set(d, []); byDisc.get(d).push(i); }
+    const discs = byDisc.size;
+    lists.set('album', a.tracks);
+    let off = 0;
+    // Several discs: one row of column names on top, then each disc with its own header
+    const tracks = discs < 2 ? trackTable('album', a.tracks, 'album') : `<div class="tl disc-cols" style="--cols:${COLS.album.cols}"><div class="th">${COLS.album.heads.map(([l, , c]) => `<span class="${c || ''}">${l}</span>`).join('')}</div></div>` + [...byDisc].map(([d, idxs]) => {
+      const closed = DISCS_CLOSED.has(`${a.key}#${d}`);
+      const html = `<div class="disc${closed ? ' closed' : ''}" data-disc="${d}">
+        <div class="disc-h" title="${closed ? 'Show' : 'Hide'} this disc"><span class="car">${ic('down', 12)}</span>${ic('disc', 16)}<span class="t">Disc ${d}</span>
+        <span class="s">${plural(idxs.length, 'song', 'songs')} · ${fmtLong(idxs.reduce((s, i) => s + (S.tracks[i].duration || 0), 0))}</span></div>
+        ${trackTable(`album-d${d}`, idxs, 'album', false, 'album', off)}</div>`;
+      off += idxs.length;
+      return html;
+    }).join('');
     return `<div class="hero"><div class="hero-bg">${cvHtml(a.key)}</div>${cvHtml(a.key, 'art', 80, true)}
       <div class="info"><div class="label">Album</div><h1>${esc(a.title)}</h1>
       <div class="by">By ${albumArtistHtml(a)}</div>
       <div class="meta">${[a.year || '', plural(a.tracks.length, 'song', 'songs') + ', ' + fmtLong(a.duration), discs > 1 ? `${discs} discs` : ''].filter(Boolean).join(' • ')}</div>
       <div class="btns">${playBtn('album')}<button class="btn-circle" data-menu-album="${esc(a.key)}" title="More">${ic('dots', 16)}</button></div></div></div>
       <div id="album-about"></div>
-      ${trackTable('album', a.tracks, 'album')}${(setTimeout(() => albumAbout(a)), '')}`;
+      ${tracks}${(setTimeout(() => albumAbout(a)), '')}`;
   },
 
   artist(name, r = {}) {
@@ -579,7 +603,8 @@ const VIEWS = {
         ? `<div class="art mosaic" data-action="pl-edit" data-arg="${esc(pl.id)}">${keys.map(k => cvHtml(k, '', 24)).join('')}</div>`
         : cvHtml(keys[0], 'art', 80, true).replace('class="cv art"', `class="cv art" data-action="pl-edit" data-arg="${esc(pl.id)}"`);
     const dur = idxs.reduce((s, i) => s + S.tracks[i].duration, 0);
-    filters.set('w-pl', q => trackTable('playlist', filterIdx(idxs, q), 'songs'));
+    const shown = sortedPlaylist(id, idxs);
+    filters.set('w-pl', q => trackTable('playlist', filterIdx(shown, q), 'songs'));
     return `<div class="hero"><div class="hero-bg">${cvHtml(keys[0])}</div>${art}
       <div class="info"><div class="label">Playlist</div><h1>${esc(pl.name)}</h1>
       ${pl.description ? `<div class="pl-desc">${esc(pl.description)}</div>` : ''}
@@ -587,7 +612,7 @@ const VIEWS = {
       <div class="meta">${plural(idxs.length, 'song', 'songs')}${idxs.length ? ', ' + fmtLong(dur) : ''}</div>
       <div class="btns">${playBtn('playlist')}<button class="btn-circle" data-menu-playlist="${esc(pl.id)}" title="More">${ic('dots', 16)}</button>
       <span class="grow"></span></div></div></div>
-      ${idxs.length ? `<div class="row" style="display:flex;justify-content:flex-end;margin:4px 0 10px">${filterBox('w-pl')}</div><div id="w-pl">${filters.get('w-pl')('')}</div>`
+      ${idxs.length ? `<div class="row" style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:4px 0 10px">${sortMenu(`pl:${id}`)}${filterBox('w-pl')}</div><div id="w-pl">${filters.get('w-pl')('')}</div>`
         : `<div class="empty"><h2>It's a bit empty here</h2><p>Drag songs onto this playlist in the sidebar, or right-click → "Add to playlist".</p></div>`}`;
   },
 
@@ -864,7 +889,7 @@ function miniState() {
   albumCover(albumKeyOf(t)).then(c => TAURI.event.emit('np-state', {
     title: t.title, artist: t.artist, cover: c?.url || null, playing: !audio.paused,
     pos: audio.currentTime || 0, dur: audio.duration || t.duration || 0,
-    fav: isFav(t.path), shuffle: S.prefs.shuffle, repeat: S.prefs.repeat, accent: accent(),
+    fav: isFav(t.path), shuffle: S.prefs.shuffle, repeat: S.prefs.repeat, accent: accent(), vol: S.prefs.muted ? 0 : S.prefs.volume,
   }));
 }
 
@@ -969,6 +994,9 @@ function setVolume(v, muted = false) {
   vol.set(muted ? 0 : v);
   setIcon(bMute, muted || v === 0 ? 'mute' : v < .5 ? 'vol1' : 'vol');
   savePrefs();
+  // The full screen's and the mini player's volume controls follow
+  if (typeof nfVolSync === 'function') nfVolSync();
+  clearTimeout(setVolume.t); setVolume.t = setTimeout(miniState, 60);
 }
 bMute.onclick = () => setVolume(S.prefs.volume || .5, !S.prefs.muted);
 
@@ -1021,6 +1049,7 @@ function mediaKey(k) {
 TAURI.event.listen('media-key', e => mediaKey(e.payload));
 TAURI.event.listen('mini-cmd', e => {
   if (e.payload?.seek != null) { const d = audio.duration || 0; if (d) audio.currentTime = e.payload.seek * d; }
+  else if (e.payload?.vol != null) setVolume(e.payload.vol);
   else if (e.payload === 'ready') miniState();
   else mediaKey(e.payload);
 });
@@ -1344,7 +1373,25 @@ function renderSidebar() {
       <div class="sb-fkids">${S.prefs.playlists.filter(p => p.folder === f.id).map(item).join('')}</div></div>`).join('')
     + S.prefs.playlists.filter(p => !ids.has(p.folder)).map(item).join('');
   markSidebar();
+  sidebarTitles();
 }
+/* The sidebar folds to its icons (more room on small screens); each icon shows its name on hover */
+function sidebarTitles() {
+  const mini = document.body.classList.contains('sb-mini');
+  for (const a of $$('#sidebar .sb-item, #new-playlist')) {
+    if (mini) a.title = a.textContent.trim(); else a.removeAttribute('title');
+  }
+}
+function setSidebarMini(on) {
+  S.prefs.sbMini = on; savePrefs();
+  document.body.classList.toggle('sb-mini', on);
+  const b = $('#sb-fold');
+  setIcon(b, on ? 'right' : 'left');
+  b.title = on ? 'Expand the sidebar' : 'Collapse the sidebar';
+  sidebarTitles();
+  scheduleRows();
+}
+$('#sb-fold').onclick = () => setSidebarMini(!document.body.classList.contains('sb-mini'));
 async function newPlaylist(idxs = []) {
   const name = await modal({ title: 'Create playlist', value: `My playlist #${S.prefs.playlists.length + 1}` });
   if (!name) return;
@@ -1430,7 +1477,7 @@ document.addEventListener('click', e => {
   const mp = t.closest('[data-menu-playlist]');
   if (mp) { const r = mp.getBoundingClientRect(); playlistMenu(r.left, r.bottom + 4, mp.dataset.menuPlaylist); return; }
   const srt = t.closest('[data-sort]');
-  if (srt) { const k = srt.dataset.sort; sortState.dir = sortState.key === k ? -sortState.dir : 1; sortState.key = k; rerender(); return; }
+  if (srt) { const k = srt.dataset.sort; setSort('songs', k, sortState.key === k ? -sortState.dir : (DESC_FIRST.has(k) ? -1 : 1)); return; }
   const act = t.closest('[data-action]');
   if (act) { runAction(act.dataset.action, act.dataset.arg); return; }
   const g = t.closest('[data-go]');
@@ -1444,6 +1491,64 @@ document.addEventListener('click', e => {
 /* Buttons with data-action="name": the other scripts add theirs here (name → fn(arg)) */
 const ACTIONS = new Map();
 const addActions = list => { for (const [name, fn] of Object.entries(list)) ACTIONS.set(name, fn); };
+
+/* Folded discs of albums ("album key#disc"), for this session */
+const DISCS_CLOSED = new Set();
+
+/* Sort menus of Songs, Your Favorites, Artists and each playlist ("pl:<id>"): a choice, and an arrow to reverse it.
+   Each choice has its natural direction (A→Z, most first, newest first). */
+const SORTS = {
+  songs: [['artist', 'Artist'], ['title', 'Title'], ['album', 'Album'], ['added', 'Recently added'], ['rating', 'Rating'], ['duration', 'Length']],
+  favorites: [['faved', 'Recently liked'], ['title', 'Title'], ['artist', 'Artist'], ['album', 'Album'], ['added', 'Recently added'], ['rating', 'Rating'], ['duration', 'Length']],
+  artists: [['name', 'Name'], ['albums', 'Most albums'], ['songs', 'Most songs'], ['plays', 'Most played'], ['added', 'Recently added']],
+  pl: [['custom', 'Playlist order'], ['title', 'Title'], ['artist', 'Artist'], ['album', 'Album'], ['added', 'Recently added'], ['rating', 'Rating'], ['duration', 'Length']],
+};
+const sortsOf = id => SORTS[id] || SORTS[id.split(':')[0]];
+const DESC_FIRST = new Set(['added', 'rating', 'faved', 'albums', 'songs', 'plays']);
+const sortOf = id => (S.prefs.sorts ||= {})[id] || { key: sortsOf(id)[0][0], dir: DESC_FIRST.has(sortsOf(id)[0][0]) ? -1 : 1 };
+function sortMenu(id) {
+  const { key, dir } = sortOf(id);
+  return `<select class="sel" data-sort-menu="${id}" title="Sort">${sortsOf(id).map(([k, l]) => `<option value="${k}" ${k === key ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <button class="ib sort-dir" data-sort-dir="${id}" title="Reverse the order">${ic(dir > 0 ? 'sortUp' : 'sortDown', 12)}</button>`;
+}
+function setSort(id, key, dir) {
+  S.prefs.sorts[id] = { key, dir };
+  if (id === 'songs') { sortState.key = key; sortState.dir = dir; }
+  savePrefs(); rerender();
+}
+view.addEventListener('change', e => {
+  const id = e.target.dataset.sortMenu; if (!id) return;
+  setSort(id, e.target.value, DESC_FIRST.has(e.target.value) ? -1 : 1);
+});
+view.addEventListener('click', e => {
+  const id = e.target.closest('[data-sort-dir]')?.dataset.sortDir; if (!id) return;
+  const s = sortOf(id); setSort(id, s.key, -s.dir);
+});
+function sortedArtists() {
+  const { key, dir } = sortOf('artists'), plays = S.prefs.plays || {};
+  const stat = ar => {
+    if (!ar._stat) ar._stat = { plays: ar.tracks.reduce((s, i) => s + (plays[S.tracks[i].path] || 0), 0), added: ar.tracks.reduce((m, i) => Math.max(m, S.tracks[i].added || 0), 0) };
+    return ar._stat;
+  };
+  const by = {
+    name: (x, y) => cmp(x.name, y.name),
+    albums: (x, y) => (x.albums.length - y.albums.length) || cmp(y.name, x.name),
+    songs: (x, y) => (x.tracks.length - y.tracks.length) || cmp(y.name, x.name),
+    plays: (x, y) => (stat(x).plays - stat(y).plays) || cmp(y.name, x.name),
+    added: (x, y) => (stat(x).added - stat(y).added) || cmp(y.name, x.name),
+  }[key] || ((x, y) => cmp(x.name, y.name));
+  S.artists.forEach(a => { a._stat = null; });
+  return [...S.artists].sort((x, y) => by(x, y) * dir);
+}
+// A playlist in its own order (reversed with the arrow), or sorted by a column
+function sortedPlaylist(id, idxs) {
+  const { key, dir } = sortOf(`pl:${id}`);
+  return key === 'custom' ? (dir < 0 ? idxs.slice().reverse() : idxs) : sortIdx(idxs, key, dir);
+}
+function sortedFavorites(idxs) {
+  const { key, dir } = sortOf('favorites');
+  return key === 'faved' ? (dir < 0 ? idxs.slice().reverse() : idxs) : sortIdx(idxs, key, dir);
+}
 
 /* Albums page order: name, artist, year or recently added; each has its natural direction
    (A→Z, newest first) and the arrow button reverses it */
@@ -1485,16 +1590,28 @@ view.addEventListener('mousedown', e => {
   const tr = e.target.closest('.tr');
   if (tr && e.button === 0 && !e.target.closest('.lnk')) selectRow(tr, e);
 });
+// A row of a table that's part of a bigger list (a disc of an album) plays the whole list from there
+function playRow(tr) {
+  const tl = tr.closest('.tl'), pos = +tr.dataset.pos;
+  if (tl.dataset.of) playList(lists.get(tl.dataset.of), pos + +tl.dataset.off);
+  else playList(lists.get(tl.dataset.list), pos);
+}
 view.addEventListener('dblclick', e => {
   const tr = e.target.closest('.tr'); if (!tr || e.target.closest('.lnk')) return;
   const list = tr.closest('.tl').dataset.list, pos = +tr.dataset.pos;
   if (list === 'q-next') { P.upNext.splice(0, pos); next(); return; }
   if (list === 'q-ctx') { P.pos += pos; next(); return; }
-  playList(lists.get(list), pos);
+  playRow(tr);
 });
 view.addEventListener('click', e => {
-  const pi = e.target.closest('.tr .pi'); if (!pi) return;
-  const tr = pi.closest('.tr'); playList(lists.get(tr.closest('.tl').dataset.list), +tr.dataset.pos);
+  const pi = e.target.closest('.tr .pi'); if (pi) { playRow(pi.closest('.tr')); return; }
+  // A disc's header folds its songs away (and back)
+  const dh = e.target.closest('.disc-h'); if (!dh) return;
+  const disc = dh.parentElement, k = `${route.arg}#${disc.dataset.disc}`;
+  const closed = disc.classList.toggle('closed');
+  if (closed) DISCS_CLOSED.add(k); else DISCS_CLOSED.delete(k);
+  dh.title = `${closed ? 'Show' : 'Hide'} this disc`;
+  paintRows(true);
 });
 view.addEventListener('contextmenu', e => {
   e.preventDefault();
@@ -1676,10 +1793,10 @@ Object.assign(VIEWS, {
   },
 
   favorites() {
-    const idxs = S.prefs.favorites.map(p => S.byPath.get(p)).filter(i => i !== undefined).reverse();
+    const idxs = sortedFavorites(S.prefs.favorites.map(p => S.byPath.get(p)).filter(i => i !== undefined));
     filters.set('w-fav', q => trackTable('favorites', filterIdx(idxs, q), 'songs'));
     return `<div class="page-h"><h1>Your Favorites</h1><div class="row">${idxs.length ? playBtn('favorites') : ''}
-      <span class="sub">${plural(idxs.length, 'song', 'songs')}</span><span class="grow"></span>${idxs.length ? filterBox('w-fav') : ''}</div></div>
+      <span class="sub">${plural(idxs.length, 'song', 'songs')}</span><span class="grow"></span>${idxs.length ? sortMenu('favorites') + filterBox('w-fav') : ''}</div></div>
       ${idxs.length ? `<div id="w-fav">${filters.get('w-fav')('')}</div>`
         : `<div class="empty"><div class="big-ic">${ic('heart', 80)}</div><h2>No favorites yet</h2><p>Tap the ♥ in the player bar or right-click → "Add to Your Favorites".</p></div>`}`;
   },
@@ -2358,6 +2475,7 @@ const extrasLoaded = new Promise(r => { extrasReady = r; });
   setVolume(S.prefs.volume, S.prefs.muted);
   syncModeButtons();
   document.body.classList.toggle('big-cover', !!S.prefs.bigCover);
+  if (S.prefs.sbMini) setSidebarMini(true);
 
   const last = S.prefs.last && S.byPath.get(S.prefs.last);
   if (last !== undefined && last !== null) {

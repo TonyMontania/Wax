@@ -14,7 +14,7 @@ async function imagePicker({ kind, key, name }) {
   const id = kind === 'album' ? key : name;
   const current = S.prefs[store]?.[id];
   const imgName = kind === 'album' ? coverName(album) : name;
-  const folder = kind === 'album' ? dirOf(realPath(S.tracks[album.tracks[0]])) : S.artistDir.get(name);
+  const folder = kind === 'album' ? albumDirOf(realPath(S.tracks[album.tracks[0]])) : S.artistDir.get(name);
   const fileName = kind === 'album' ? (album.shared ? safeName(album.title) + '.jpg' : 'cover.jpg') : 'artist.jpg';
   let chosen = null;
   const d = dialog(`<h2>${kind === 'album' ? `Cover for "${esc(album.title)}"` : `Photo of ${esc(name)}`}</h2>
@@ -241,7 +241,8 @@ function npFull(open) {
         <div class="nf-lyrics"></div></div>
       <div class="nf-bar"><span class="nf-t">0:00</span><div class="nf-prog"><div class="nf-fill"></div></div><span class="nf-d">0:00</span>
         <div class="nf-ctl"><button class="ib" data-nf="fav">${ic('heart', 20)}</button><button class="ib" data-nf="prev">${ic('prev', 20)}</button>
-        <button class="nf-play" data-nf="play">${ic('play', 22)}</button><button class="ib" data-nf="next">${ic('next', 20)}</button><button class="ib" data-nf="lyrics" title="Lyrics">${ic('mic', 20)}</button><button class="ib" data-nf="slides" title="Album and artist pictures in turn">${ic('slides', 20)}</button></div></div>`;
+        <button class="nf-play" data-nf="play">${ic('play', 22)}</button><button class="ib" data-nf="next">${ic('next', 20)}</button><button class="ib" data-nf="lyrics" title="Lyrics">${ic('mic', 20)}</button><button class="ib" data-nf="slides" title="Album and artist pictures in turn">${ic('slides', 20)}</button></div>
+        <div class="nf-vol"><button class="ib" data-nf="mute" title="Mute">${ic('vol', 20)}</button><input type="range" class="nf-volr" min="0" max="1" step="0.01" title="Volume"></div></div>`;
     document.body.appendChild(NF.el);
     NF.el.addEventListener('click', e => {
       const b = e.target.closest('[data-nf]')?.dataset.nf;
@@ -251,16 +252,19 @@ function npFull(open) {
       else if (b === 'next') next();
       else if (b === 'fav' && P.current >= 0) { toggleFav([P.current]); npFullSync(); }
       else if (b === 'lyrics') { S.prefs.nfLyrics = S.prefs.nfLyrics === false; savePrefs(); npFullSync(true); }
+      else if (b === 'mute') setVolume(S.prefs.volume || .5, !S.prefs.muted);
       else if (b === 'slides') { S.prefs.nfSlideshow = S.prefs.nfSlideshow === false; savePrefs(); NF.slide = 0; NF.slideAt = Date.now(); nfShow(NF.slides[0]); npFullSync(); }
       const ln = e.target.closest('[data-nfl]');
       if (ln && NF.synced) audio.currentTime = Math.max(0, NF.lines[+ln.dataset.nfl].t);
       if (e.target.closest('.nf-prog')) { const r = e.target.closest('.nf-prog').getBoundingClientRect(); if (audio.duration) audio.currentTime = (e.clientX - r.left) / r.width * audio.duration; }
     });
+    NF.el.addEventListener('input', e => { if (e.target.classList.contains('nf-volr')) setVolume(+e.target.value); });
+    NF.el.addEventListener('wheel', e => { if (e.target.closest('.nf-vol')) { e.preventDefault(); setVolume(S.prefs.volume + (e.deltaY < 0 ? .05 : -.05)); } }, { passive: false });
     NF.el.addEventListener('mousemove', () => { NF.el.classList.remove('idle'); clearTimeout(NF.idle); NF.idle = setTimeout(() => NF.el.classList.add('idle'), 3000); });
   }
   NF.el.classList.toggle('open', open);
   invoke('set_fullscreen', { on: open }).catch(() => {});
-  if (open) { NF.path = null; NF.slides = []; npFullSync(); nfLoop(); } else cancelAnimationFrame(NF.raf);
+  if (open) { NF.path = null; NF.slides = []; npFullSync(); nfVolSync(); nfLoop(); } else cancelAnimationFrame(NF.raf);
 }
 function npFullSync(force = false) {
   if (!NF.el?.classList.contains('open')) return;
@@ -300,6 +304,15 @@ function npFullSync(force = false) {
     NF.el.classList.toggle('has-lyrics', !!(NF.synced || r.plain));
   }).catch(() => {});
 }
+// The volume control of the full screen follows the player's
+function nfVolSync() {
+  if (!NF.el) return;
+  const v = S.prefs.muted ? 0 : S.prefs.volume, r = $('.nf-volr', NF.el);
+  if (document.activeElement !== r) r.value = v;
+  r.style.setProperty('--v', v);
+  setIcon($('[data-nf="mute"]', NF.el), v === 0 ? 'mute' : v < .5 ? 'vol1' : 'vol');
+}
+
 // Crossfade to a picture (it fades in once it has loaded, never as an empty frame)
 function nfShow(url) {
   if (!NF.el) return;

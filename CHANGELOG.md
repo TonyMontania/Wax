@@ -2,6 +2,13 @@
 
 What changed in each version of Wax, as you'd notice it in the app.
 
+## Next version (not released yet)
+
+- **Albums with several discs** show each disc under its own header ("Disc 1", "Disc 2"…), which folds its songs away with a click. Albums whose discs are in folders ("Disc 1", "CD2"…) are one album now, with the cover found one folder up
+- **Sort menus** in Songs, Your Favorites, Artists and every playlist (Albums already had one), next to their filter, with an arrow to reverse the order. Each playlist remembers its own; dragging songs to reorder works in the playlist's own order
+- **Volume** in full-screen Now Playing and in the mini player (the mouse wheel works too) ([#6](https://github.com/TonyMontania/Wax/issues/6))
+- **The sidebar folds to its icons** with the arrow at its top, for more room on smaller screens; each icon shows its name on hover ([#7](https://github.com/TonyMontania/Wax/issues/7))
+
 ## 1.1.2
 
 - **Listen Together:** guests get the song-change notification too, and the lyrics panel shows the host's lyrics (their .lrc files, embedded or saved lyrics); if the host has none, Wax looks online as usual

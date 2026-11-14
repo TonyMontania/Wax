@@ -709,11 +709,12 @@ view.addEventListener('dragstart', e => {
   e.dataTransfer.effectAllowed = 'copyMove';
 });
 view.addEventListener('dragend', () => { dragSrc = null; $$('.drop-line', view).forEach(x => x.remove()); $('#b-queue').classList.remove('drop'); });
-// Lists that can be reordered: a playlist (without a filter) and "Next in queue"
+// Lists that can be reordered: a playlist (in its own order, without a filter) and "Next in queue"
 function dropTarget(e) {
   const tl = e.target.closest('.tl'); if (!tl || !dragIdxs.length) return null;
   const list = tl.dataset.list;
-  if (list === 'playlist' && route.view === 'playlist' && !$('[data-filter="w-pl"]')?.value) return { tl, list };
+  const plain = sortOf(`pl:${route.arg}`);
+  if (list === 'playlist' && route.view === 'playlist' && !$('[data-filter="w-pl"]')?.value && plain.key === 'custom' && plain.dir > 0) return { tl, list };
   if (list === 'q-next') return { tl, list };
   return null;
 }

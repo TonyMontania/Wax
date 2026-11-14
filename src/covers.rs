@@ -249,6 +249,14 @@ fn deezer_artist_picture(name: &str, titles: &[String]) -> Option<Vec<u8>> {
 
 /* ───────────── Album covers ───────────── */
 
+/// "Disc 1", "CD2", "Disk 3 - Bonus"…: a folder holding one disc of an album
+fn is_disc_folder(dir: &Path) -> bool {
+    let name = dir.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let rest = ["disc", "disk", "cd"].iter().find_map(|p| name.strip_prefix(p)).unwrap_or("");
+    let rest = rest.trim_start_matches([' ', '-', '_', '.']);
+    !rest.is_empty() && rest.starts_with(|c: char| c.is_ascii_digit()) && rest.chars().take_while(|c| c.is_ascii_digit()).count() <= 2
+}
+
 /// Cover bytes: embedded in the file or an image in the album's folder.
 /// `shared` = the folder holds several releases (e.g. a "Singles" folder with loose tracks):
 /// then only an image named after the track or the album counts, never a generic cover.jpg.
@@ -262,7 +270,12 @@ fn cover_source(path: &Path, shared: Option<&str>) -> Option<Vec<u8>> {
         }
     }
     let parent = path.parent()?;
-    let mut imgs: Vec<PathBuf> = fs::read_dir(parent).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file() && has_ext(p, IMAGE_EXT)).collect();
+    let images = |dir: &Path| -> Vec<PathBuf> { fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_file() && has_ext(p, IMAGE_EXT)).collect() };
+    let mut imgs = images(parent);
+    // A disc folder ("Disc 1", "CD2"…) without pictures: the album's cover is usually one folder up
+    if imgs.is_empty() && is_disc_folder(parent) {
+        imgs = images(parent.parent()?);
+    }
     if let Some(album) = shared {
         let stem = path.file_stem().map(|s| simple(&s.to_string_lossy())).unwrap_or_default();
         let album = simple(album);
@@ -863,6 +876,22 @@ pub async fn migrate_cache_names(albums: Vec<OldAlbum>, artists: Vec<String>, ly
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An album split in disc folders keeps its cover one folder up
+    #[test]
+    fn cover_above_disc_folders() {
+        for (name, disc) in [("Disc 1", true), ("CD2", true), ("disk_3 - Bonus", true), ("Disc 100", false), ("Discography", false), ("Album", false)] {
+            assert_eq!(is_disc_folder(Path::new(name)), disc, "{name}");
+        }
+        let dir = std::env::temp_dir().join("wax_disc_cover");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("Album/Disc 1")).unwrap();
+        fs::write(dir.join("Album/cover.jpg"), b"jpeg").unwrap();
+        fs::write(dir.join("Album/Disc 1/01.flac"), b"").unwrap();
+        assert_eq!(cover_source(&dir.join("Album/Disc 1/01.flac"), None).as_deref(), Some(&b"jpeg"[..]));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// Old marker files move into index.json, old hash names become readable names, and
     /// cleaning keeps only what the library uses.
     #[test]

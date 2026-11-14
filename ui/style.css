@@ -787,3 +787,47 @@ code { background: #282828; padding: 1px 6px; border-radius: 3px; font-size: 12p
 .upd-num { font-variant-numeric: tabular-nums; }
 .upd-err { color: #f15e6c; }
 @media (max-width: 700px) { #upd-bar { flex-wrap: wrap; padding-left: 16px; } }
+
+/* ───────────── Discs of an album ───────────── */
+.disc + .disc { margin-top: 18px; }
+.disc .th { display: none; }
+.disc-cols { margin-bottom: 4px; }
+.disc-h { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: #fff; cursor: pointer; border-radius: 4px; user-select: none; }
+.disc-h:hover { background: rgba(255,255,255,.06); }
+.disc-h .t { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.disc-h .s { color: var(--mut); font-size: 12px; margin-left: 6px; }
+.disc-h .car { display: flex; color: var(--mut); transition: transform .2s; }
+.disc-h > .ic { color: var(--mut); }
+.disc.closed .car { transform: rotate(-90deg); }
+.disc.closed .tl { display: none; }
+
+/* Sort menus */
+.sort-dir { margin-right: 6px; }
+
+/* ───────────── Volume in full screen ───────────── */
+#npfull .nf-ctl { position: relative; }
+#npfull .nf-vol { position: absolute; right: 8vw; bottom: 26px; display: flex; align-items: center; gap: 8px; }
+#npfull .nf-vol .ib { color: #ddd; }
+.nf-volr { -webkit-appearance: none; appearance: none; width: 110px; height: 4px; border-radius: 2px; outline: none; cursor: pointer;
+  background: linear-gradient(to right, #fff calc(var(--v, .8) * 100%), rgba(255,255,255,.25) 0); }
+.nf-volr::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity .15s; }
+.nf-vol:hover .nf-volr::-webkit-slider-thumb { opacity: 1; }
+.nf-vol:hover .nf-volr { background: linear-gradient(to right, var(--green) calc(var(--v, .8) * 100%), rgba(255,255,255,.25) 0); }
+
+/* ───────────── Sidebar folded to its icons ───────────── */
+.sb-top { gap: 4px; }
+#sb-fold { margin-left: auto; color: var(--mut); }
+#sb-fold:hover { color: #fff; }
+.sb-mini #app { grid-template-columns: 64px minmax(0, 1fr); }
+.sb-mini .sb-top { padding: 0; justify-content: center; }
+.sb-mini #sb-fold { margin-left: 0; }
+.sb-mini .sb-item { font-size: 0; padding: 0; display: flex; align-items: center; justify-content: center; }
+.sb-mini .sb-item .sbi { margin-right: 0; }
+.sb-mini .sb-item.playing-ctx::after { right: 8px; }
+.sb-mini .sb-live, .sb-mini .sb-f .car, .sb-mini .sb-f .nm { display: none; }
+.sb-mini .sb-f { color: var(--mut); }
+.sb-mini .sb-fkids .sb-item { padding-left: 0; }
+.sb-mini .sb-h { font-size: 0; padding: 0; margin: 14px 18px 10px; border-top: 1px solid #333; }
+.sb-mini #sb-cover { display: none; }
+.sb-mini #new-playlist { font-size: 0; justify-content: center; padding-left: 0; padding-right: 0; }
+.sb-mini #new-playlist .plus-circle { margin: 0; }
